@@ -1,0 +1,8 @@
+{
+  "name": "NEON RUSH 3D",
+  "description": "High-speed futuristic 3D endless runner through a neon cyber-city with dynamic obstacles, unlockable character skins, and procedural synth audio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

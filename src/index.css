@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #060914;
+    color: #eef4ff;
+    font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    overscroll-behavior: none;
+  }
+
+  canvas {
+    display: block;
+    touch-action: none;
+  }
+}
+
+.font-display {
+  font-family: "Chakra Petch", "Space Grotesk", system-ui, sans-serif;
+}
+
+.font-mono-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-stroke {
+  text-shadow:
+    0 2px 10px rgba(4, 7, 18, 0.95),
+    0 0 2px rgba(4, 7, 18, 0.95);
+}
+
+.panel-surface {
+  background-color: rgba(8, 12, 26, 0.92);
+  border: 1px solid rgba(94, 234, 255, 0.24);
+  box-shadow:
+    0 24px 64px rgba(2, 5, 14, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+@keyframes hudFlash {
+  0% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-damage-flash {
+  animation: hudFlash 0.35s ease-out forwards;
+}
