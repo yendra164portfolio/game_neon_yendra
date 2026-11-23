@@ -1,0 +1,30 @@
+[Script Info]
+Title: Yendra AI Content Studio
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans Display,52,&H00FFFFFF,&H0000FFFF,&H000A0F1E,&H96070D1A,-1,0,0,0,100,100,0,0,3,12,0,2,64,64,250,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.14,Default,,0,0,0,,Kok bisa HP setipis ini jepret
+Dialogue: 0,0:00:03.14,0:00:05.70,Default,,0,0,0,,foto malam tetap tajam tanpa ngeblur
+Dialogue: 0,0:00:05.70,0:00:06.69,Default,,0,0,0,,dalam sekejap?
+Dialogue: 0,0:00:06.69,0:00:09.40,Default,,0,0,0,,Begitu kamu memotret, baterai dan chip
+Dialogue: 0,0:00:09.40,0:00:12.53,Default,,0,0,0,,PMIC langsung mengalirkan daya super presisi
+Dialogue: 0,0:00:12.53,0:00:15.95,Default,,0,0,0,,dalam hitungan mikrodetik. Bersamaan dengan itu,
+Dialogue: 0,0:00:15.95,0:00:18.72,Default,,0,0,0,,modul OIS mendeteksi getaran tangan dan
+Dialogue: 0,0:00:18.72,0:00:21.57,Default,,0,0,0,,menggeser lensa secara fisik kurang dari
+Dialogue: 0,0:00:21.57,0:00:24.35,Default,,0,0,0,,satu milidetik agar cahaya tetap fokus.
+Dialogue: 0,0:00:24.35,0:00:26.91,Default,,0,0,0,,Lalu, prosesor SoC dan RAM bertumpuk
+Dialogue: 0,0:00:26.91,0:00:29.90,Default,,0,0,0,,di atasnya langsung bekerja memproses data
+Dialogue: 0,0:00:29.90,0:00:32.61,Default,,0,0,0,,sensor serta AI secara bersamaan. Agar
+Dialogue: 0,0:00:32.61,0:00:35.52,Default,,0,0,0,,tidak overheat dan lemot, pendingin vapor
+Dialogue: 0,0:00:35.52,0:00:38.59,Default,,0,0,0,,chamber menyerap panas lewat penguapan lalu
+Dialogue: 0,0:00:38.59,0:00:40.58,Default,,0,0,0,,menyebarkannya ke rangka HP.
+Dialogue: 0,0:00:40.58,0:00:43.35,Default,,0,0,0,,Semua teknologi super padat ini bekerja
+Dialogue: 0,0:00:43.35,0:00:46.84,Default,,0,0,0,,serempak dalam hitungan milidetik demi pengalaman
+Dialogue: 0,0:00:46.84,0:00:48.48,Default,,0,0,0,,terbaik di genggamanmu.

@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
   html,
   body,
   #root {
@@ -8,13 +12,23 @@
     height: 100%;
     margin: 0;
     padding: 0;
-    overflow: hidden;
-    background-color: #060914;
-    color: #eef4ff;
-    font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
-    user-select: none;
-    -webkit-user-select: none;
-    overscroll-behavior: none;
+    background-color: #0b1120;
+    color: #f1f5f9;
+    font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: "Plus Jakarta Sans", "DM Sans", system-ui, sans-serif;
+  }
+
+  .font-mono-num {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
   }
 
   canvas {
@@ -23,38 +37,21 @@
   }
 }
 
-.font-display {
-  font-family: "Chakra Petch", "Space Grotesk", system-ui, sans-serif;
+/* Custom subtle scrollbars for panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.font-mono-num {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
+::-webkit-scrollbar-track {
+  background: #0f172a;
 }
 
-.hud-stroke {
-  text-shadow:
-    0 2px 10px rgba(4, 7, 18, 0.95),
-    0 0 2px rgba(4, 7, 18, 0.95);
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
 }
 
-.panel-surface {
-  background-color: rgba(8, 12, 26, 0.92);
-  border: 1px solid rgba(94, 234, 255, 0.24);
-  box-shadow:
-    0 24px 64px rgba(2, 5, 14, 0.8),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-@keyframes hudFlash {
-  0% {
-    opacity: 0.7;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-.animate-damage-flash {
-  animation: hudFlash 0.35s ease-out forwards;
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

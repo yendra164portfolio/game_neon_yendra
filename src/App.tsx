@@ -1,337 +1,300 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { GameHud } from './components/GameHud';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnalyticsView } from './components/AnalyticsView';
+import { AssignTaskModal } from './components/AssignTaskModal';
+import { ContentStudioView } from './components/ContentStudioView';
+import { IntegrationsView } from './components/IntegrationsView';
+import { OfficeViewport } from './components/OfficeViewport';
+import { TaskManagerView } from './components/TaskManagerView';
+import { TopNav, type WorkspaceTab } from './components/TopNav';
+import { VideoPipelineView } from './components/VideoPipelineView';
 import {
-  GameOverModal,
-  PauseModal,
-  SettingsModal,
-  SkinsModal,
-} from './components/GameModals';
-import { TitleOverlay } from './components/TitleOverlay';
-import { NeonAudioEngine } from './game/audio';
-import { RunnerEngine } from './game/RunnerEngine';
-import {
-  BASE_SPEED,
-  loadProgress,
-  saveProgress,
-  unlockOrSelectSkin,
-} from './game/runnerLogic';
+  applyExternalAgentEvent,
+  approveVideoRun,
+  assignTaskToAgent,
+  cancelTask,
+  computeDashboardMetrics,
+  createInitialOfficeState,
+  requestVideoRevision,
+  retryFailedTask,
+  startVideoProductionRun,
+  stepOfficeSimulation,
+  triggerAgentError,
+} from './office/officeEngine';
 import type {
-  GamePhase,
-  GameSettings,
-  HudSnapshot,
-  PersistedProgress,
-  RunSummary,
-  SkinId,
-} from './game/types';
+  AgentId,
+  ExternalAgentEvent,
+  OfficeState,
+  TaskPriority,
+  VideoFormat,
+} from './office/types';
+import type { StudioDashboardPayload } from './studio/types';
 
-export default function App() {
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const engineRef = useRef<RunnerEngine | null>(null);
-  const audioRef = useRef<NeonAudioEngine | null>(null);
+export function App() {
+  const [officeState, setOfficeState] = useState<OfficeState>(() =>
+    createInitialOfficeState(Date.now()),
+  );
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('office');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<AgentId | null>(null);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignDefaultAgent, setAssignDefaultAgent] = useState<AgentId>('researcher');
+  const [wsConnected, setWsConnected] = useState(false);
+  const [studioDashboard, setStudioDashboard] = useState<StudioDashboardPayload | null>(null);
+  const [studioLoading, setStudioLoading] = useState(false);
 
-  const [progress, setProgress] = useState<PersistedProgress>(() => loadProgress());
-  const progressRef = useRef<PersistedProgress>(progress);
-  progressRef.current = progress;
-
-  const [phase, setPhase] = useState<GamePhase>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('autostart') === '1') return 'playing';
+  const refreshStudioDashboard = useCallback(async () => {
+    setStudioLoading(true);
+    try {
+      const res = await fetch('/api/studio/dashboard');
+      if (res.ok) {
+        const data = (await res.json()) as StudioDashboardPayload;
+        setStudioDashboard(data);
+      }
+    } catch {
+      // Ignore transient network errors during reload
+    } finally {
+      setStudioLoading(false);
     }
-    return 'title';
-  });
-  const phaseRef = useRef<GamePhase>(phase);
-  phaseRef.current = phase;
+  }, []);
 
-  const [showSkins, setShowSkins] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [crashFlash, setCrashFlash] = useState(false);
-
-  const [hud, setHud] = useState<HudSnapshot>(() => ({
-    score: 0,
-    distance: 0,
-    coins: 0,
-    speed: Math.round(BASE_SPEED * 3.6),
-    tierLabel: 'CRUISE',
-    tierLevel: 1,
-    bestScore: progress.bestScore,
-    combo: 0,
-  }));
-
-  const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
-
-  // Sync game state to body attribute
   useEffect(() => {
-    document.body.dataset.state = phase;
-  }, [phase]);
+    void refreshStudioDashboard();
+  }, [refreshStudioDashboard]);
 
-  // Persist progress changes
+  // Deterministic 1Hz simulation loop (never coupled to WebGL render loop)
   useEffect(() => {
-    saveProgress(progress);
-  }, [progress]);
-
-  const startNewRun = useCallback(() => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    setShowSkins(false);
-    setShowSettings(false);
-    setRunSummary(null);
-    setCrashFlash(false);
-    setPhase('playing');
-    document.body.dataset.state = 'playing';
-
-    audioRef.current?.playUiClick();
-    audioRef.current?.startMusic();
-    engineRef.current?.startNewRun();
+    const intervalId = window.setInterval(() => {
+      setOfficeState((prev) => stepOfficeSimulation(prev, 1, Date.now()));
+    }, 1000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
-  const pauseRun = useCallback(() => {
-    if (phaseRef.current !== 'playing') return;
-    setPhase('paused');
-    document.body.dataset.state = 'paused';
-    audioRef.current?.stopMusic();
-    audioRef.current?.playUiClick();
-    engineRef.current?.setPhase('paused');
-  }, []);
-
-  const resumeRun = useCallback(() => {
-    if (phaseRef.current !== 'paused') return;
-    setShowSettings(false);
-    setPhase('playing');
-    document.body.dataset.state = 'playing';
-    audioRef.current?.playUiClick();
-    audioRef.current?.startMusic();
-    engineRef.current?.setPhase('playing');
-  }, []);
-
-  const returnToTitle = useCallback(() => {
-    setShowSettings(false);
-    setShowSkins(false);
-    setRunSummary(null);
-    setPhase('title');
-    document.body.dataset.state = 'title';
-    audioRef.current?.stopMusic();
-    audioRef.current?.playUiClick();
-    engineRef.current?.setPhase('title');
-  }, []);
-
-  const updateSettings = useCallback((next: GameSettings) => {
-    setProgress((prev) => ({ ...prev, settings: next }));
-    audioRef.current?.updateSettings(next);
-    engineRef.current?.setSettings(next);
-  }, []);
-
-  const toggleMute = useCallback(() => {
-    const cur = progressRef.current.settings;
-    updateSettings({ ...cur, muted: !cur.muted });
-  }, [updateSettings]);
-
-  const handleSelectOrUnlockSkin = useCallback((skinId: SkinId) => {
-    const result = unlockOrSelectSkin(progressRef.current, skinId);
-    if (result.action === 'insufficient') return;
-    setProgress(result.next);
-    engineRef.current?.setSkin(skinId);
-    if (result.action === 'unlocked') {
-      audioRef.current?.playUnlock();
-    } else {
-      audioRef.current?.playUiClick();
-    }
-  }, []);
-
-  const handleResetBest = useCallback(() => {
-    setProgress((prev) => ({ ...prev, bestScore: 0 }));
-    engineRef.current?.setBestScore(0);
-    audioRef.current?.playUiClick();
-  }, []);
-
-  // Mount Three.js engine once
+  // Connect to /ws/office for Laravel Reverb & Studio live events
   useEffect(() => {
-    const container = mountRef.current;
-    if (!container) return;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/office`;
+    let socket: WebSocket | null = null;
+    let reconnectTimer = 0;
+    let unmounted = false;
 
-    const audio = new NeonAudioEngine(progressRef.current.settings);
-    audioRef.current = audio;
+    const connect = () => {
+      if (unmounted) return;
+      try {
+        socket = new WebSocket(wsUrl);
+        socket.onopen = () => setWsConnected(true);
+        socket.onclose = () => {
+          setWsConnected(false);
+          if (!unmounted) {
+            reconnectTimer = window.setTimeout(connect, 4000);
+          }
+        };
+        socket.onerror = () => {
+          setWsConnected(false);
+        };
+        socket.onmessage = (evt) => {
+          try {
+            const payload = JSON.parse(String(evt.data));
+            if (
+              payload &&
+              (payload.event === 'App\\Events\\AgentTaskUpdated' ||
+                payload.event === 'App\\Events\\AgentStatusChanged') &&
+              payload.data?.agentId
+            ) {
+              setOfficeState((prev) =>
+                applyExternalAgentEvent(prev, payload as ExternalAgentEvent, Date.now()),
+              );
+            } else if (
+              payload &&
+              (payload.event === 'App\\Events\\StudioUpdated' ||
+                payload.event === 'App\\Events\\VideoReady')
+            ) {
+              void refreshStudioDashboard();
+            }
+          } catch {
+            // Ignore malformed socket frames
+          }
+        };
+      } catch {
+        setWsConnected(false);
+      }
+    };
 
-    const engine = new RunnerEngine(
-      container,
-      audio,
-      progressRef.current.selectedSkin,
-      progressRef.current.settings,
-      progressRef.current.bestScore,
-      {
-        onHudUpdate: (snapshot) => {
-          setHud(snapshot);
-        },
-        onGameOver: (summary) => {
-          setCrashFlash(true);
-          setTimeout(() => setCrashFlash(false), 380);
-          setRunSummary(summary);
-          setPhase('gameover');
-          document.body.dataset.state = 'gameover';
-          setProgress((prev) => ({
-            ...prev,
-            bestScore: Math.max(prev.bestScore, summary.bestScore),
-            totalCoins: prev.totalCoins + summary.coins,
-          }));
-        },
-      },
-    );
-    engineRef.current = engine;
-
-    if (phaseRef.current === 'playing') {
-      engine.startNewRun();
-    }
+    connect();
 
     return () => {
-      engine.dispose();
-      audio.dispose();
-      engineRef.current = null;
-      audioRef.current = null;
+      unmounted = true;
+      window.clearTimeout(reconnectTimer);
+      socket?.close();
     };
-  }, []);
+  }, [refreshStudioDashboard]);
 
-  // Global keyboard shortcuts (Title Start, Pause, Mute, Restart)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
+  const metrics = useMemo(() => computeDashboardMetrics(officeState), [officeState]);
 
-      if (e.code === 'KeyM') {
-        toggleMute();
-        return;
-      }
+  const handleOpenAssignModal = (agentId?: AgentId) => {
+    if (agentId) setAssignDefaultAgent(agentId);
+    setAssignModalOpen(true);
+  };
 
-      if (phaseRef.current === 'title' && !showSkins && !showSettings) {
-        if (e.code === 'Enter' || e.code === 'Space') {
-          e.preventDefault();
-          startNewRun();
-        }
-        return;
-      }
+  const handleAssignTask = (payload: {
+    title: string;
+    description: string;
+    assigneeId: AgentId;
+    priority: TaskPriority;
+    estimatedSeconds: number;
+  }) => {
+    setOfficeState((prev) => assignTaskToAgent(prev, payload, Date.now()));
+  };
 
-      if (e.code === 'Escape' || e.code === 'KeyP') {
-        if (showSettings) {
-          setShowSettings(false);
-          return;
-        }
-        if (showSkins) {
-          setShowSkins(false);
-          return;
-        }
-        if (phaseRef.current === 'playing') {
-          e.preventDefault();
-          pauseRun();
-        } else if (phaseRef.current === 'paused') {
-          e.preventDefault();
-          resumeRun();
-        }
-        return;
-      }
+  const handleTriggerError = (agentId: AgentId) => {
+    setOfficeState((prev) =>
+      triggerAgentError(
+        prev,
+        agentId,
+        'Demo Error: Simulated worker interruption — click Retry to recover.',
+        Date.now(),
+      ),
+    );
+  };
 
-      if (e.code === 'KeyR' && (phaseRef.current === 'paused' || phaseRef.current === 'gameover')) {
-        e.preventDefault();
-        startNewRun();
-      }
+  const handleRetryTask = (taskId: string) => {
+    setOfficeState((prev) => retryFailedTask(prev, taskId, Date.now()));
+  };
+
+  const handleCancelTask = (taskId: string) => {
+    setOfficeState((prev) => cancelTask(prev, taskId, Date.now()));
+  };
+
+  const handleInspectEmployee = (agentId: AgentId) => {
+    setSelectedEmployeeId(agentId);
+    setActiveTab('office');
+  };
+
+  const handleStartVideoRun = (payload: {
+    topic: string;
+    format: VideoFormat;
+    geminiAssisted: boolean;
+    customArtifacts?: {
+      researchNotes?: string;
+      scriptText?: string;
+      subtitlesSrt?: string;
+      musicCue?: string;
     };
+  }) => {
+    setOfficeState((prev) => startVideoProductionRun(prev, payload, Date.now()));
+  };
 
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pauseRun, resumeRun, showSettings, showSkins, startNewRun, toggleMute]);
+  const handleApproveVideoRun = (runId: string, notes: string) => {
+    setOfficeState((prev) => approveVideoRun(prev, runId, notes, Date.now()));
+  };
+
+  const handleRequestRevision = (runId: string, notes: string) => {
+    setOfficeState((prev) => requestVideoRevision(prev, runId, notes, Date.now()));
+  };
 
   return (
-    <main className="relative w-full h-full overflow-hidden select-none">
-      {/* Isolated WebGL Canvas Container */}
-      <div
-        ref={mountRef}
-        data-testid="game-viewport"
-        className="fixed inset-0 w-full h-full"
+    <div
+      className="flex h-full w-full flex-col overflow-hidden bg-slate-950 text-slate-100"
+      data-active-tab={activeTab}
+    >
+      <TopNav
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        onOpenAssignModal={() => handleOpenAssignModal()}
+        awaitingVideoReviewCount={metrics.awaitingVideoReview}
       />
 
-      {/* Brief Collision Impact Vignette */}
-      {crashFlash && (
-        <div
-          className="fixed inset-0 pointer-events-none z-25 animate-damage-flash"
-          style={{
-            background:
-              'radial-gradient(circle at center, transparent 42%, rgba(255, 36, 96, 0.52) 100%)',
-          }}
-        />
-      )}
+      <main className="flex flex-1 flex-col overflow-hidden">
+        {activeTab === 'office' && (
+          <OfficeViewport
+            employees={officeState.employees}
+            tasks={officeState.tasks}
+            activityLog={officeState.activityLog}
+            metrics={metrics}
+            selectedEmployeeId={selectedEmployeeId}
+            simulationRunning={officeState.simulationRunning}
+            simulationSpeed={officeState.simulationSpeed}
+            modeLabel={officeState.modeLabel}
+            onSelectEmployee={setSelectedEmployeeId}
+            onToggleSimulation={() =>
+              setOfficeState((prev) => ({
+                ...prev,
+                simulationRunning: !prev.simulationRunning,
+              }))
+            }
+            onChangeSpeed={(speed) =>
+              setOfficeState((prev) => ({ ...prev, simulationSpeed: speed }))
+            }
+            onOpenAssignForAgent={(agentId) => handleOpenAssignModal(agentId)}
+            onTriggerError={handleTriggerError}
+            onRetryTask={handleRetryTask}
+            onResetDemo={() => {
+              setSelectedEmployeeId(null);
+              setOfficeState(createInitialOfficeState(Date.now()));
+            }}
+          />
+        )}
 
-      {/* Title Screen */}
-      {phase === 'title' && (
-        <TitleOverlay
-          progress={progress}
-          onStart={startNewRun}
-          onOpenSkins={() => {
-            audioRef.current?.playUiClick();
-            setShowSkins(true);
-          }}
-          onOpenSettings={() => {
-            audioRef.current?.playUiClick();
-            setShowSettings(true);
-          }}
-          onToggleMute={toggleMute}
-        />
-      )}
+        {activeTab === 'studio' && (
+          <ContentStudioView
+            dashboard={studioDashboard}
+            loading={studioLoading}
+            onRefresh={refreshStudioDashboard}
+            onJumpToOffice={() => setActiveTab('office')}
+          />
+        )}
 
-      {/* Active Gameplay HUD */}
-      {phase === 'playing' && (
-        <GameHud
-          hud={hud}
-          muted={progress.settings.muted}
-          onToggleMute={toggleMute}
-          onPause={pauseRun}
-        />
-      )}
+        {activeTab === 'tasks' && (
+          <TaskManagerView
+            employees={officeState.employees}
+            tasks={officeState.tasks}
+            activityLog={officeState.activityLog}
+            onAssignTask={handleAssignTask}
+            onRetryTask={handleRetryTask}
+            onCancelTask={handleCancelTask}
+            onInspectEmployee={handleInspectEmployee}
+          />
+        )}
 
-      {/* Pause Modal */}
-      {phase === 'paused' && !showSettings && (
-        <PauseModal
-          hud={hud}
-          onResume={resumeRun}
-          onRestart={startNewRun}
-          onOpenSettings={() => {
-            audioRef.current?.playUiClick();
-            setShowSettings(true);
-          }}
-          onMainMenu={returnToTitle}
-        />
-      )}
+        {activeTab === 'video' && (
+          <VideoPipelineView
+            employees={officeState.employees}
+            videoRuns={officeState.videoRuns}
+            activeVideoRunId={officeState.activeVideoRunId}
+            onSelectRun={(runId) =>
+              setOfficeState((prev) => ({ ...prev, activeVideoRunId: runId }))
+            }
+            onStartRun={handleStartVideoRun}
+            onApproveRun={handleApproveVideoRun}
+            onRequestRevision={handleRequestRevision}
+          />
+        )}
 
-      {/* Game Over Modal */}
-      {phase === 'gameover' && runSummary && (
-        <GameOverModal
-          summary={runSummary}
-          onPlayAgain={startNewRun}
-          onMainMenu={returnToTitle}
-        />
-      )}
+        {activeTab === 'analytics' && (
+          <AnalyticsView
+            employees={officeState.employees}
+            tasks={officeState.tasks}
+            metrics={metrics}
+            onInspectEmployee={handleInspectEmployee}
+          />
+        )}
 
-      {/* Character Skins Garage */}
-      {showSkins && (
-        <SkinsModal
-          progress={progress}
-          onSelectOrUnlock={handleSelectOrUnlockSkin}
-          onClose={() => {
-            audioRef.current?.playUiClick();
-            setShowSkins(false);
-          }}
-        />
-      )}
+        {activeTab === 'integrations' && (
+          <IntegrationsView
+            employees={officeState.employees}
+            wsConnected={wsConnected}
+            onJumpToOffice={() => setActiveTab('office')}
+          />
+        )}
+      </main>
 
-      {/* Settings Modal */}
-      {showSettings && (
-        <SettingsModal
-          settings={progress.settings}
-          onUpdateSettings={updateSettings}
-          onResetBest={handleResetBest}
-          onClose={() => {
-            audioRef.current?.playUiClick();
-            setShowSettings(false);
-          }}
-        />
-      )}
-    </main>
+      <AssignTaskModal
+        isOpen={assignModalOpen}
+        employees={officeState.employees}
+        defaultAssigneeId={assignDefaultAgent}
+        onClose={() => setAssignModalOpen(false)}
+        onSubmit={handleAssignTask}
+      />
+    </div>
   );
 }
+
+export default App;

@@ -1,0 +1,71 @@
+1
+00:00:01,000 --> 00:00:03,136
+Kok bisa HP setipis ini jepret
+
+2
+00:00:03,136 --> 00:00:05,698
+foto malam tetap tajam tanpa ngeblur
+
+3
+00:00:05,698 --> 00:00:06,695
+dalam sekejap?
+
+4
+00:00:06,695 --> 00:00:09,400
+Begitu kamu memotret, baterai dan chip
+
+5
+00:00:09,400 --> 00:00:12,532
+PMIC langsung mengalirkan daya super presisi
+
+6
+00:00:12,532 --> 00:00:15,949
+dalam hitungan mikrodetik. Bersamaan dengan itu,
+
+7
+00:00:15,949 --> 00:00:18,725
+modul OIS mendeteksi getaran tangan dan
+
+8
+00:00:18,725 --> 00:00:21,572
+menggeser lensa secara fisik kurang dari
+
+9
+00:00:21,572 --> 00:00:24,348
+satu milidetik agar cahaya tetap fokus.
+
+10
+00:00:24,348 --> 00:00:26,911
+Lalu, prosesor SoC dan RAM bertumpuk
+
+11
+00:00:26,911 --> 00:00:29,901
+di atasnya langsung bekerja memproses data
+
+12
+00:00:29,901 --> 00:00:32,606
+sensor serta AI secara bersamaan. Agar
+
+13
+00:00:32,606 --> 00:00:35,524
+tidak overheat dan lemot, pendingin vapor
+
+14
+00:00:35,524 --> 00:00:38,585
+chamber menyerap panas lewat penguapan lalu
+
+15
+00:00:38,585 --> 00:00:40,579
+menyebarkannya ke rangka HP.
+
+16
+00:00:40,579 --> 00:00:43,355
+Semua teknologi super padat ini bekerja
+
+17
+00:00:43,355 --> 00:00:46,843
+serempak dalam hitungan milidetik demi pengalaman
+
+18
+00:00:46,843 --> 00:00:48,480
+terbaik di genggamanmu.

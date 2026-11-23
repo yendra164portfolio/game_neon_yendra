@@ -1,6 +1,6 @@
 {
-  "name": "NEON RUSH 3D",
-  "description": "High-speed futuristic 3D endless runner through a neon cyber-city with dynamic obstacles, unlockable character skins, and procedural synth audio.",
+  "name": "YENDRA AI OFFICE",
+  "description": "Interactive 3D AI Virtual Office for monitoring autonomous AI employees, managing task queues, and orchestrating an 8-stage AI Video Production Department.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
