@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ENGINEERING_TOPIC_CATALOG,
+  MOTIVATION_TOPIC_CATALOG,
   getJakartaDateString,
   selectDailyTopics,
   validateRenderedVideoSpecs,
@@ -13,7 +14,7 @@ test('getJakartaDateString formats YYYY-MM-DD in Asia/Jakarta (+07:00)', () => {
   assert.equal(getJakartaDateString(utcMs), '2026-11-23');
 });
 
-test('selectDailyTopics returns 3 unique topics avoiding previously used slugs', () => {
+test('selectDailyTopics returns 3 unique motivational topics avoiding previously used slugs', () => {
   const day1 = selectDailyTopics([], 3);
   assert.equal(day1.length, 3);
   assert.equal(new Set(day1.map((t) => t.slug)).size, 3);
@@ -27,7 +28,11 @@ test('selectDailyTopics returns 3 unique topics avoiding previously used slugs',
       `Topic ${t.slug} should not repeat on day 2`,
     );
   }
-  assert.ok(ENGINEERING_TOPIC_CATALOG.length >= 12);
+  assert.ok(MOTIVATION_TOPIC_CATALOG.length >= 12);
+  assert.equal(ENGINEERING_TOPIC_CATALOG, MOTIVATION_TOPIC_CATALOG);
+  for (const topic of MOTIVATION_TOPIC_CATALOG) {
+    assert.equal(/cara kerja mesin/i.test(topic.title), false);
+  }
 });
 
 test('validateRenderedVideoSpecs enforces 1080x1920, 30-60s duration, audio/video streams, and file existence', () => {
@@ -57,13 +62,33 @@ test('validateRenderedVideoSpecs enforces 1080x1920, 30-60s duration, audio/vide
 
   const wrongRes = validateRenderedVideoSpecs({
     fileExists: true,
+    fileReadable: true,
     fileSizeBytes: 500_000,
     width: 1920,
     height: 1080,
     durationSeconds: 40,
     hasVideoStream: true,
     hasAudioStream: false,
+    videoCodec: 'h264',
+    audioCodec: 'aac',
   });
   assert.equal(wrongRes.passed, false);
   assert.equal(wrongRes.reasons.length, 2);
+
+  const wrongCodecAndUnreadable = validateRenderedVideoSpecs({
+    fileExists: true,
+    fileReadable: false,
+    fileSizeBytes: 500_000,
+    width: 1080,
+    height: 1920,
+    durationSeconds: 42,
+    hasVideoStream: true,
+    hasAudioStream: true,
+    videoCodec: 'vp9',
+    audioCodec: 'mp3',
+  });
+  assert.equal(wrongCodecAndUnreadable.passed, false);
+  assert.ok(wrongCodecAndUnreadable.reasons.some((r) => /not readable/i.test(r)));
+  assert.ok(wrongCodecAndUnreadable.reasons.some((r) => /expected h264/i.test(r)));
+  assert.ok(wrongCodecAndUnreadable.reasons.some((r) => /expected aac/i.test(r)));
 });

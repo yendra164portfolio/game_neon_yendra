@@ -81,7 +81,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
   const handleAssignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
-      setFormError('Task title is required.');
+      setFormError('Judul tugas wajib diisi.');
       return;
     }
     onAssignTask({
@@ -103,6 +103,14 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
     return tasks.filter((t) => t.status === status).length;
   };
 
+  const FILTER_LABELS: Record<QueueFilter, string> = {
+    All: 'Semua',
+    Active: 'Aktif',
+    Queued: 'Antre',
+    Completed: 'Selesai',
+    Error: 'Error',
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 lg:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -110,36 +118,36 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
             <h1 className="font-display text-2xl font-bold text-slate-50">
-              Task Queue & Activity History
+              Antrean Tugas &amp; Riwayat Aktivitas
             </h1>
             <p className="mt-1 text-sm text-slate-400">
-              Manager task dispatch, priority queue monitoring, and timestamped execution logs.
+              Pembagian tugas oleh Yendra Owner, pemantauan antrean prioritas, dan log eksekusi karyawan.
             </p>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-400">
             <span>
-              Active:{' '}
+              Aktif:{' '}
               <strong className="font-mono-num text-blue-400">
                 {countByStatus('Active')}
               </strong>
             </span>
             <span aria-hidden="true">·</span>
             <span>
-              Queued:{' '}
+              Antre:{' '}
               <strong className="font-mono-num text-slate-200">
                 {countByStatus('Queued')}
               </strong>
             </span>
             <span aria-hidden="true">·</span>
             <span>
-              Completed:{' '}
+              Selesai:{' '}
               <strong className="font-mono-num text-emerald-400">
                 {countByStatus('Completed')}
               </strong>
             </span>
             <span aria-hidden="true">·</span>
             <span>
-              Failed:{' '}
+              Gagal:{' '}
               <strong className="font-mono-num text-red-400">
                 {countByStatus('Error')}
               </strong>
@@ -157,10 +165,10 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
               id="manager-assign-heading"
               className="font-display text-base font-semibold text-slate-100"
             >
-              Manager Task Assignment
+              Penugasan Tugas Yendra Owner
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              Assign work directly to any AI employee. Idle agents begin immediately.
+              Berikan pekerjaan langsung ke karyawan. Karyawan yang sedang siaga akan langsung memprosesnya.
             </p>
 
             <form onSubmit={handleAssignSubmit} className="mt-4 space-y-3.5">
@@ -169,7 +177,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                   htmlFor="queue-assignee"
                   className="block text-xs font-medium text-slate-300"
                 >
-                  Assign To
+                  Pilih Karyawan
                 </label>
                 <select
                   id="queue-assignee"
@@ -179,7 +187,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                 >
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.status})
+                      {emp.name} ({getStatusStyle(emp.status).badgeText})
                     </option>
                   ))}
                 </select>
@@ -190,7 +198,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                   htmlFor="queue-title"
                   className="block text-xs font-medium text-slate-300"
                 >
-                  Task Title
+                  Judul Tugas
                 </label>
                 <input
                   id="queue-title"
@@ -200,7 +208,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                     setTitle(e.target.value);
                     if (formError) setFormError('');
                   }}
-                  placeholder="e.g., Audit Q4 YouTube Thumbnails"
+                  placeholder="Contoh: Evaluasi Thumbnail Video Minggu Ini"
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
                 />
                 {formError && (
@@ -213,14 +221,14 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                   htmlFor="queue-desc"
                   className="block text-xs font-medium text-slate-300"
                 >
-                  Task Brief
+                  Brief Tugas
                 </label>
                 <textarea
                   id="queue-desc"
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Instructions or target deliverables..."
+                  placeholder="Instruksi atau target hasil kerja..."
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
                 />
               </div>
@@ -230,7 +238,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                   htmlFor="queue-priority"
                   className="block text-xs font-medium text-slate-300"
                 >
-                  Priority
+                  Prioritas
                 </label>
                 <select
                   id="queue-priority"
@@ -238,10 +246,10 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                   onChange={(e) => setPriority(e.target.value as TaskPriority)}
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="Low">Low</option>
+                  <option value="Low">Rendah</option>
                   <option value="Normal">Normal</option>
-                  <option value="High">High</option>
-                  <option value="Urgent">Urgent</option>
+                  <option value="High">Tinggi</option>
+                  <option value="Urgent">Mendesak</option>
                 </select>
               </div>
 
@@ -249,7 +257,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                 type="submit"
                 className="w-full rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-500"
               >
-                Dispatch to Queue
+                Kirim ke Antrean
               </button>
             </form>
           </section>
@@ -264,7 +272,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                 id="task-queue-heading"
                 className="font-display text-base font-semibold text-slate-100"
               >
-                Live Task Queue
+                Antrean Tugas Langsung
               </h2>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -272,10 +280,10 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
                   <input
                     type="search"
-                    aria-label="Search tasks"
+                    aria-label="Cari tugas"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Filter tasks..."
+                    placeholder="Cari tugas..."
                     className="rounded-lg border border-slate-700 bg-slate-950 py-1.5 pl-8 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
@@ -293,7 +301,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                             : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
-                        {tab}
+                        {FILTER_LABELS[tab]}
                       </button>
                     ),
                   )}
@@ -303,19 +311,19 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
 
             {filteredTasks.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-slate-800 p-8 text-center text-sm text-slate-400">
-                No tasks match the current filter. Dispatch a new task or switch filter tabs.
+                Tidak ada tugas yang cocok dengan filter ini. Kirim tugas baru atau ubah tab filter.
               </div>
             ) : (
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full border-collapse text-left text-xs">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400">
-                      <th className="py-2.5 pr-3 font-medium">Task</th>
-                      <th className="py-2.5 pr-3 font-medium">Assignee</th>
+                      <th className="py-2.5 pr-3 font-medium">Tugas</th>
+                      <th className="py-2.5 pr-3 font-medium">Karyawan</th>
                       <th className="py-2.5 pr-3 font-medium">Status</th>
-                      <th className="py-2.5 pr-3 font-medium">Progress</th>
-                      <th className="py-2.5 pr-3 font-medium">Started / Completed</th>
-                      <th className="py-2.5 text-right font-medium">Actions</th>
+                      <th className="py-2.5 pr-3 font-medium">Progres</th>
+                      <th className="py-2.5 pr-3 font-medium">Mulai / Selesai</th>
+                      <th className="py-2.5 text-right font-medium">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/70">
@@ -352,7 +360,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                           </td>
                           <td className="py-3 pr-3 whitespace-nowrap">
                             <span className={`font-semibold ${st.textClass}`}>
-                              {task.status}
+                              {st.badgeText}
                             </span>
                           </td>
                           <td className="py-3 pr-3">
@@ -369,8 +377,8 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                             </div>
                           </td>
                           <td className="font-mono-num py-3 pr-3 whitespace-nowrap text-[11px] text-slate-400">
-                            <div>Start: {formatClockTime(task.startedAt)}</div>
-                            <div>Done: {formatClockTime(task.completedAt)}</div>
+                            <div>Mulai: {formatClockTime(task.startedAt)}</div>
+                            <div>Selesai: {formatClockTime(task.completedAt)}</div>
                           </td>
                           <td className="py-3 text-right whitespace-nowrap">
                             <div className="inline-flex items-center gap-1.5">
@@ -378,18 +386,18 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onRetryTask(task.id)}
-                                  aria-label={`Retry '${task.title}'`}
+                                  aria-label={`Ulangi '${task.title}'`}
                                   className="inline-flex items-center gap-1 rounded border border-emerald-600/50 bg-emerald-950/60 px-2 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-900/60"
                                 >
                                   <RotateCcw className="h-3 w-3" />
-                                  <span>Retry</span>
+                                  <span>Ulangi</span>
                                 </button>
                               )}
                               {task.status !== 'Completed' && (
                                 <button
                                   type="button"
                                   onClick={() => onCancelTask(task.id)}
-                                  aria-label={`Remove '${task.title}'`}
+                                  aria-label={`Hapus '${task.title}'`}
                                   className="inline-flex items-center rounded border border-slate-700 bg-slate-950 p-1 text-slate-400 hover:border-red-500/50 hover:text-red-300"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -416,17 +424,17 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
             id="activity-history-heading"
             className="font-display text-base font-semibold text-slate-100"
           >
-            Activity History Log
+            Riwayat Log Aktivitas
           </h2>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400">
-                  <th className="py-2 pr-4 font-medium">Timestamp</th>
-                  <th className="py-2 pr-4 font-medium">AI Employee</th>
+                  <th className="py-2 pr-4 font-medium">Waktu</th>
+                  <th className="py-2 pr-4 font-medium">Karyawan</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
-                  <th className="py-2 pr-4 font-medium">Event Source</th>
-                  <th className="py-2 font-medium">Activity Description</th>
+                  <th className="py-2 pr-4 font-medium">Sumber Event</th>
+                  <th className="py-2 font-medium">Keterangan Aktivitas</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -441,7 +449,7 @@ export const TaskManagerView: React.FC<TaskManagerViewProps> = ({
                         {entry.agentName}
                       </td>
                       <td className={`py-2.5 pr-4 whitespace-nowrap font-medium ${st.textClass}`}>
-                        {entry.status}
+                        {st.badgeText}
                       </td>
                       <td className="font-mono-num py-2.5 pr-4 whitespace-nowrap text-slate-500">
                         {entry.source}

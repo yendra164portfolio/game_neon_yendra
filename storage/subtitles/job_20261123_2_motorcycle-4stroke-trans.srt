@@ -1,0 +1,71 @@
+1
+00:00:01,000 --> 00:00:04,420
+Pernah penasaran bagaimana setetes bensin bisa
+
+2
+00:00:04,420 --> 00:00:06,576
+membuat motor melaju kencang?
+
+3
+00:00:06,576 --> 00:00:09,030
+Semua berawal di mesin empat tak.
+
+4
+00:00:09,030 --> 00:00:12,004
+Pertama, katup masuk terbuka saat piston
+
+5
+00:00:12,004 --> 00:00:15,126
+turun menghisap campuran udara dan bensin.
+
+6
+00:00:15,126 --> 00:00:17,803
+Kedua, katup menutup dan piston naik
+
+7
+00:00:17,803 --> 00:00:21,595
+memampatkannya. Ketiga, busi memercikkan api memicu
+
+8
+00:00:21,595 --> 00:00:25,015
+pembakaran yang mendorong piston turun memutar
+
+9
+00:00:25,015 --> 00:00:27,915
+poros engkol. Keempat, piston naik lagi
+
+10
+00:00:27,915 --> 00:00:30,517
+mendorong gas buang keluar knalpot.
+
+11
+00:00:30,517 --> 00:00:33,639
+Tenaga putaran ini diteruskan oleh kopling
+
+12
+00:00:33,639 --> 00:00:37,283
+basah menuju transmisi sekuensial. Rangkaian roda
+
+13
+00:00:37,283 --> 00:00:40,257
+gigi mengatur rasio torsi dan kecepatan,
+
+14
+00:00:40,257 --> 00:00:43,379
+lalu rantai dan sproket menyalurkan tenaga
+
+15
+00:00:43,379 --> 00:00:45,312
+tersebut ke roda belakang.
+
+16
+00:00:45,312 --> 00:00:48,435
+Dari pembakaran di silinder hingga putaran
+
+17
+00:00:48,435 --> 00:00:51,781
+roda, semua komponen bekerja presisi mengubah
+
+18
+00:00:51,781 --> 00:00:54,160
+energi kimia menjadi laju motor.

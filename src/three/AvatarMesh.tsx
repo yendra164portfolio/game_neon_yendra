@@ -7,28 +7,41 @@ interface AvatarMeshProps {
   appearance: AvatarAppearance;
   status: AgentStatus;
   seedOffset: number;
+  pose?: 'seated' | 'standing';
+  isWalking?: boolean;
+  scale?: number;
 }
 
 export const AvatarMesh: React.FC<AvatarMeshProps> = ({
   appearance,
   status,
   seedOffset,
+  pose = 'seated',
+  isWalking = false,
+  scale = 1,
 }) => {
+  const rootRef = useRef<THREE.Group>(null);
   const upperBodyRef = useRef<THREE.Group>(null);
   const headRef = useRef<THREE.Group>(null);
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
+  const leftLegRef = useRef<THREE.Group>(null);
+  const rightLegRef = useRef<THREE.Group>(null);
   const thinkingRingRef = useRef<THREE.Mesh>(null);
   const statusOrbRef = useRef<THREE.Mesh>(null);
+
+  const isStanding = pose === 'standing';
+  const indicatorBaseY = isStanding ? 1.98 : 1.68;
 
   useFrame((state, rawDelta) => {
     const dt = Math.min(rawDelta, 0.08);
     const t = state.clock.elapsedTime + seedOffset * 1.7;
+    const root = rootRef.current;
     const upper = upperBodyRef.current;
     const head = headRef.current;
     const leftArm = leftArmRef.current;
     const rightArm = rightArmRef.current;
-    if (!upper || !head || !leftArm || !rightArm) return;
+    if (!root || !upper || !head || !leftArm || !rightArm) return;
 
     let targetTorsoX = 0.06;
     let targetTorsoY = 0;
@@ -39,8 +52,38 @@ export const AvatarMesh: React.FC<AvatarMeshProps> = ({
     let targetLeftArmZ = 0.1;
     let targetRightArmX = -0.85;
     let targetRightArmZ = -0.1;
+    let targetLeftLegX = 0;
+    let targetRightLegX = 0;
+    let targetRootY = 0;
 
-    if (status === 'Working') {
+    if (isStanding) {
+      if (isWalking) {
+        const stride = Math.sin(t * 7.8);
+        targetRootY = Math.abs(Math.sin(t * 7.8)) * 0.032;
+        targetTorsoX = 0.07;
+        targetTorsoY = stride * 0.05;
+        targetHeadX = 0.02;
+        targetHeadY = Math.sin(t * 1.9) * 0.08;
+        targetLeftLegX = stride * 0.56;
+        targetRightLegX = -stride * 0.56;
+        // Manager carries tablet in left hand while swinging right arm naturally
+        targetLeftArmX = appearance.accessory === 'tablet' ? -0.58 - stride * 0.16 : -stride * 0.45 - 0.1;
+        targetLeftArmZ = 0.12;
+        targetRightArmX = stride * 0.48 - 0.08;
+        targetRightArmZ = -0.1;
+      } else {
+        // Standing beside colleague's desk monitoring work
+        targetRootY = 0;
+        targetTorsoX = 0.04 + Math.sin(t * 1.5) * 0.02;
+        targetTorsoY = Math.sin(t * 0.9) * 0.05;
+        targetHeadX = 0.08 + Math.sin(t * 2.1) * 0.05;
+        targetHeadY = Math.sin(t * 1.1) * 0.16;
+        targetLeftArmX = appearance.accessory === 'tablet' ? -0.92 : -0.32;
+        targetLeftArmZ = 0.15;
+        targetRightArmX = -0.58 + Math.sin(t * 2.4) * 0.09;
+        targetRightArmZ = 0.16;
+      }
+    } else if (status === 'Working') {
       // Focused typing kinematics
       targetTorsoX = 0.14 + Math.sin(t * 2.5) * 0.02;
       targetHeadX = 0.12 + Math.sin(t * 3.0) * 0.03;
@@ -83,7 +126,8 @@ export const AvatarMesh: React.FC<AvatarMeshProps> = ({
       targetRightArmZ = -0.42;
     }
 
-    const dampFactor = 8;
+    const dampFactor = isWalking ? 12 : 8;
+    root.position.y = THREE.MathUtils.damp(root.position.y, targetRootY, dampFactor, dt);
     upper.rotation.x = THREE.MathUtils.damp(upper.rotation.x, targetTorsoX, dampFactor, dt);
     upper.rotation.y = THREE.MathUtils.damp(upper.rotation.y, targetTorsoY, dampFactor, dt);
     head.rotation.x = THREE.MathUtils.damp(head.rotation.x, targetHeadX, dampFactor, dt);
@@ -95,12 +139,27 @@ export const AvatarMesh: React.FC<AvatarMeshProps> = ({
     rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, targetRightArmX, dampFactor, dt);
     rightArm.rotation.z = THREE.MathUtils.damp(rightArm.rotation.z, targetRightArmZ, dampFactor, dt);
 
+    if (leftLegRef.current && rightLegRef.current) {
+      leftLegRef.current.rotation.x = THREE.MathUtils.damp(
+        leftLegRef.current.rotation.x,
+        targetLeftLegX,
+        dampFactor,
+        dt,
+      );
+      rightLegRef.current.rotation.x = THREE.MathUtils.damp(
+        rightLegRef.current.rotation.x,
+        targetRightLegX,
+        dampFactor,
+        dt,
+      );
+    }
+
     if (thinkingRingRef.current) {
       thinkingRingRef.current.rotation.z += dt * 1.4;
-      thinkingRingRef.current.position.y = 1.68 + Math.sin(t * 2.2) * 0.04;
+      thinkingRingRef.current.position.y = indicatorBaseY + Math.sin(t * 2.2) * 0.04;
     }
     if (statusOrbRef.current) {
-      statusOrbRef.current.position.y = 1.68 + Math.sin(t * 2.6) * 0.03;
+      statusOrbRef.current.position.y = indicatorBaseY + Math.sin(t * 2.6) * 0.03;
     }
   });
 
@@ -116,42 +175,84 @@ export const AvatarMesh: React.FC<AvatarMeshProps> = ({
             : '#64748b';
 
   return (
-    <group position={[0, 0, 0]}>
-      {/* Seated Pelvis & Legs */}
-      <mesh position={[0, 0.5, 0.04]} castShadow receiveShadow>
-        <boxGeometry args={[0.34, 0.14, 0.28]} />
-        <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} metalness={0.05} />
-      </mesh>
-      {/* Left & Right Thighs */}
-      <mesh position={[-0.1, 0.48, 0.2]} castShadow>
-        <boxGeometry args={[0.13, 0.12, 0.34]} />
-        <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
-      </mesh>
-      <mesh position={[0.1, 0.48, 0.2]} castShadow>
-        <boxGeometry args={[0.13, 0.12, 0.34]} />
-        <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
-      </mesh>
-      {/* Shins */}
-      <mesh position={[-0.1, 0.26, 0.34]} castShadow>
-        <boxGeometry args={[0.11, 0.36, 0.11]} />
-        <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
-      </mesh>
-      <mesh position={[0.1, 0.26, 0.34]} castShadow>
-        <boxGeometry args={[0.11, 0.36, 0.11]} />
-        <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
-      </mesh>
-      {/* Shoes */}
-      <mesh position={[-0.1, 0.05, 0.39]} castShadow>
-        <boxGeometry args={[0.12, 0.08, 0.2]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.1} />
-      </mesh>
-      <mesh position={[0.1, 0.05, 0.39]} castShadow>
-        <boxGeometry args={[0.12, 0.08, 0.2]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.1} />
-      </mesh>
+    <group ref={rootRef} position={[0, 0, 0]} scale={scale}>
+      {isStanding ? (
+        <>
+          {/* Standing Pelvis */}
+          <mesh position={[0, 0.8, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.34, 0.14, 0.24]} />
+            <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} metalness={0.05} />
+          </mesh>
+          {/* Left Articulated Leg */}
+          <group ref={leftLegRef} position={[-0.1, 0.78, 0]}>
+            <mesh position={[0, -0.2, 0]} castShadow>
+              <boxGeometry args={[0.13, 0.38, 0.14]} />
+              <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+            </mesh>
+            <mesh position={[0, -0.54, 0]} castShadow>
+              <boxGeometry args={[0.11, 0.36, 0.12]} />
+              <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+            </mesh>
+            <mesh position={[0, -0.74, 0.04]} castShadow>
+              <boxGeometry args={[0.12, 0.08, 0.2]} />
+              <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.1} />
+            </mesh>
+          </group>
+          {/* Right Articulated Leg */}
+          <group ref={rightLegRef} position={[0.1, 0.78, 0]}>
+            <mesh position={[0, -0.2, 0]} castShadow>
+              <boxGeometry args={[0.13, 0.38, 0.14]} />
+              <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+            </mesh>
+            <mesh position={[0, -0.54, 0]} castShadow>
+              <boxGeometry args={[0.11, 0.36, 0.12]} />
+              <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+            </mesh>
+            <mesh position={[0, -0.74, 0.04]} castShadow>
+              <boxGeometry args={[0.12, 0.08, 0.2]} />
+              <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.1} />
+            </mesh>
+          </group>
+        </>
+      ) : (
+        <>
+          {/* Seated Pelvis & Legs */}
+          <mesh position={[0, 0.5, 0.04]} castShadow receiveShadow>
+            <boxGeometry args={[0.34, 0.14, 0.28]} />
+            <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} metalness={0.05} />
+          </mesh>
+          {/* Left & Right Thighs */}
+          <mesh position={[-0.1, 0.48, 0.2]} castShadow>
+            <boxGeometry args={[0.13, 0.12, 0.34]} />
+            <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+          </mesh>
+          <mesh position={[0.1, 0.48, 0.2]} castShadow>
+            <boxGeometry args={[0.13, 0.12, 0.34]} />
+            <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+          </mesh>
+          {/* Shins */}
+          <mesh position={[-0.1, 0.26, 0.34]} castShadow>
+            <boxGeometry args={[0.11, 0.36, 0.11]} />
+            <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+          </mesh>
+          <mesh position={[0.1, 0.26, 0.34]} castShadow>
+            <boxGeometry args={[0.11, 0.36, 0.11]} />
+            <meshStandardMaterial color={appearance.pantsColor} roughness={0.8} />
+          </mesh>
+          {/* Shoes */}
+          <mesh position={[-0.1, 0.05, 0.39]} castShadow>
+            <boxGeometry args={[0.12, 0.08, 0.2]} />
+            <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.1} />
+          </mesh>
+          <mesh position={[0.1, 0.05, 0.39]} castShadow>
+            <boxGeometry args={[0.12, 0.08, 0.2]} />
+            <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.1} />
+          </mesh>
+        </>
+      )}
 
       {/* Articulated Upper Body */}
-      <group ref={upperBodyRef} position={[0, 0.56, 0.02]}>
+      <group ref={upperBodyRef} position={[0, isStanding ? 0.85 : 0.56, isStanding ? 0 : 0.02]}>
         {/* Torso / Jacket */}
         <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.4, 0.46, 0.24]} />

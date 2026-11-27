@@ -1,0 +1,30 @@
+[Script Info]
+Title: Yendra AI Content Studio
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans Display,52,&H00FFFFFF,&H0000FFFF,&H000A0F1E,&H96070D1A,-1,0,0,0,100,100,0,0,3,12,0,2,64,64,250,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:04.42,Default,,0,0,0,,Pernah penasaran bagaimana setetes bensin bisa
+Dialogue: 0,0:00:04.42,0:00:06.58,Default,,0,0,0,,membuat motor melaju kencang?
+Dialogue: 0,0:00:06.58,0:00:09.03,Default,,0,0,0,,Semua berawal di mesin empat tak.
+Dialogue: 0,0:00:09.03,0:00:12.00,Default,,0,0,0,,Pertama, katup masuk terbuka saat piston
+Dialogue: 0,0:00:12.00,0:00:15.13,Default,,0,0,0,,turun menghisap campuran udara dan bensin.
+Dialogue: 0,0:00:15.13,0:00:17.80,Default,,0,0,0,,Kedua, katup menutup dan piston naik
+Dialogue: 0,0:00:17.80,0:00:21.59,Default,,0,0,0,,memampatkannya. Ketiga, busi memercikkan api memicu
+Dialogue: 0,0:00:21.59,0:00:25.01,Default,,0,0,0,,pembakaran yang mendorong piston turun memutar
+Dialogue: 0,0:00:25.01,0:00:27.91,Default,,0,0,0,,poros engkol. Keempat, piston naik lagi
+Dialogue: 0,0:00:27.91,0:00:30.52,Default,,0,0,0,,mendorong gas buang keluar knalpot.
+Dialogue: 0,0:00:30.52,0:00:33.64,Default,,0,0,0,,Tenaga putaran ini diteruskan oleh kopling
+Dialogue: 0,0:00:33.64,0:00:37.28,Default,,0,0,0,,basah menuju transmisi sekuensial. Rangkaian roda
+Dialogue: 0,0:00:37.28,0:00:40.26,Default,,0,0,0,,gigi mengatur rasio torsi dan kecepatan,
+Dialogue: 0,0:00:40.26,0:00:43.38,Default,,0,0,0,,lalu rantai dan sproket menyalurkan tenaga
+Dialogue: 0,0:00:43.38,0:00:45.31,Default,,0,0,0,,tersebut ke roda belakang.
+Dialogue: 0,0:00:45.31,0:00:48.44,Default,,0,0,0,,Dari pembakaran di silinder hingga putaran
+Dialogue: 0,0:00:48.44,0:00:51.78,Default,,0,0,0,,roda, semua komponen bekerja presisi mengubah
+Dialogue: 0,0:00:51.78,0:00:54.16,Default,,0,0,0,,energi kimia menjadi laju motor.

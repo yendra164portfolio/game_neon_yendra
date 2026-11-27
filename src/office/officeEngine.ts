@@ -5,6 +5,7 @@ import type {
   DashboardMetrics,
   EmployeeProfile,
   ExternalAgentEvent,
+  ManagerPatrolState,
   OfficeState,
   OfficeTask,
   TaskPriority,
@@ -13,10 +14,165 @@ import type {
   VideoProductionRun,
 } from './types';
 
+export const OFFICE_WALK_BOUNDS = {
+  minX: -6.3,
+  maxX: 6.5,
+  minZ: -4.6,
+  maxZ: 4.7,
+} as const;
+
+export function getChairWorldSpot(emp: Pick<EmployeeProfile, 'deskPosition' | 'deskRotationY'>): {
+  position: [number, number, number];
+  yaw: number;
+} {
+  const rot = emp.deskRotationY;
+  return {
+    position: [
+      Number((emp.deskPosition[0] + Math.sin(rot) * 0.45).toFixed(3)),
+      0,
+      Number((emp.deskPosition[2] + Math.cos(rot) * 0.45).toFixed(3)),
+    ],
+    yaw: rot + Math.PI,
+  };
+}
+
+export function isValidSeatPosition(
+  x: number,
+  z: number,
+  movingAgentId: AgentId,
+  employees: EmployeeProfile[],
+): boolean {
+  if (
+    x < OFFICE_WALK_BOUNDS.minX ||
+    x > OFFICE_WALK_BOUNDS.maxX ||
+    z < OFFICE_WALK_BOUNDS.minZ ||
+    z > OFFICE_WALK_BOUNDS.maxZ
+  ) {
+    return false;
+  }
+
+  // Front teaching zone & blackboard corridor (reserved for Guru & Papan Tulis)
+  if (movingAgentId !== 'manager' && z < -2.1) return false;
+  // North-East Classroom Cabinet & Corner Shelf (x > 4.2, z < -2.6)
+  if (x > 4.2 && z < -2.6) return false;
+  // West Wall Book Cubbies & Water Dispenser strip
+  if (x < -5.8) return false;
+
+  // Keep desks spaced neatly apart with clear aisles
+  for (const other of employees) {
+    if (other.id === movingAgentId) continue;
+    const dx = x - other.deskPosition[0];
+    const dz = z - other.deskPosition[2];
+    if (Math.hypot(dx, dz) < 2.15) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function resolveValidSeatPosition(
+  targetX: number,
+  targetZ: number,
+  movingAgentId: AgentId,
+  employees: EmployeeProfile[],
+): [number, number, number] {
+  const clampedX = Math.max(OFFICE_WALK_BOUNDS.minX, Math.min(OFFICE_WALK_BOUNDS.maxX, targetX));
+  const clampedZ = Math.max(OFFICE_WALK_BOUNDS.minZ, Math.min(OFFICE_WALK_BOUNDS.maxZ, targetZ));
+
+  if (isValidSeatPosition(clampedX, clampedZ, movingAgentId, employees)) {
+    return [Number(clampedX.toFixed(2)), 0, Number(clampedZ.toFixed(2))];
+  }
+
+  // Spiral search outward for nearest unobstructed floor spot
+  for (let radius = 0.45; radius <= 7.5; radius += 0.45) {
+    for (let step = 0; step < 16; step += 1) {
+      const angle = (step / 16) * Math.PI * 2;
+      const cx = clampedX + Math.cos(angle) * radius;
+      const cz = clampedZ + Math.sin(angle) * radius;
+      if (isValidSeatPosition(cx, cz, movingAgentId, employees)) {
+        return [Number(cx.toFixed(2)), 0, Number(cz.toFixed(2))];
+      }
+    }
+  }
+
+  const current = employees.find((e) => e.id === movingAgentId);
+  return current ? [...current.deskPosition] : [0, 0, 0];
+}
+
+function isFloorClearForStanding(x: number, z: number, employees: EmployeeProfile[]): boolean {
+  if (x < -6.3 || x > 6.8 || z < -4.9 || z > 5.1) return false;
+  if (x > 4.4 && z < -3.0) return false;
+
+  for (const emp of employees) {
+    const dx = x - emp.deskPosition[0];
+    const dz = z - emp.deskPosition[2];
+    if (Math.hypot(dx, dz) < 0.95) return false;
+  }
+  return true;
+}
+
+export function computeInspectionSpotForDesk(
+  targetEmp: EmployeeProfile,
+  employees: EmployeeProfile[],
+): { spot: [number, number, number]; lookAt: [number, number, number] } {
+  const rot = targetEmp.deskRotationY;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const candidates: Array<[number, number]> = [
+    [1.35, 0.35],
+    [-1.35, 0.35],
+    [0.0, 1.38],
+    [1.15, -0.95],
+    [-1.15, -0.95],
+  ];
+
+  for (const [lx, lz] of candidates) {
+    const wx = targetEmp.deskPosition[0] + lx * cos + lz * sin;
+    const wz = targetEmp.deskPosition[2] - lx * sin + lz * cos;
+    if (isFloorClearForStanding(wx, wz, employees)) {
+      return {
+        spot: [Number(wx.toFixed(2)), 0, Number(wz.toFixed(2))],
+        lookAt: [targetEmp.deskPosition[0], 0, targetEmp.deskPosition[2]],
+      };
+    }
+  }
+
+  const fallbackX = Math.max(-6.8, Math.min(6.8, targetEmp.deskPosition[0] + sin * 1.35));
+  const fallbackZ = Math.max(-5.0, Math.min(5.0, targetEmp.deskPosition[2] + cos * 1.35));
+  return {
+    spot: [Number(fallbackX.toFixed(2)), 0, Number(fallbackZ.toFixed(2))],
+    lookAt: [targetEmp.deskPosition[0], 0, targetEmp.deskPosition[2]],
+  };
+}
+
 let idCounter = 1000;
 function nextId(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${idCounter}`;
+}
+
+export function syncEmployeeTaskCounters(
+  employees: EmployeeProfile[],
+  tasks: OfficeTask[],
+): EmployeeProfile[] {
+  return employees.map((emp) => {
+    let completed = 0;
+    let failed = 0;
+    for (const task of tasks) {
+      if (task.assigneeId !== emp.id) continue;
+      if (task.status === 'Completed') completed += 1;
+      else if (task.status === 'Error') failed += 1;
+    }
+    if (emp.tasksCompleted === completed && emp.tasksFailed === failed) {
+      return emp;
+    }
+    return {
+      ...emp,
+      tasksCompleted: completed,
+      tasksFailed: failed,
+    };
+  });
 }
 
 export interface VideoRunSeedInput {
@@ -37,115 +193,115 @@ function buildVideoStages(
   nowMs: number,
   custom?: VideoRunSeedInput['customArtifacts'],
 ): VideoPipelineStage[] {
-  const safeTopic = topic.trim() || 'AI Autonomous Workflows';
+  const safeTopic = topic.trim() || 'Alur Kerja Produksi Otomatis';
   return [
     {
       stageNumber: 1,
-      title: 'Research Video Topics',
-      description: 'Analyze audience trends, key talking points, and verified facts.',
+      title: 'Riset Topik Video',
+      description: 'Menganalisis tren audiens, poin inspirasi utama, dan wawasan psikologi terverifikasi.',
       assigneeId: 'researcher',
       status: 'Active',
       progress: 12,
       startedAt: nowMs,
       completedAt: null,
-      artifactTitle: 'Topic Brief & Key Takeaways',
+      artifactTitle: 'Ringkasan Topik & Poin Utama',
       artifactContent:
         custom?.researchNotes ??
-        `Topic: ${safeTopic}\nFormat: ${format}\n\nKey Angles:\n1. Why autonomous agent orchestration reduces production turnaround by 64%.\n2. Live 3D observability across specialist departments.\n3. Real-world integration pattern with Gemini API and event streams.`,
+        `Topik: ${safeTopic}\nFormat: ${format}\n\nPoin Utama:\n1. Pembukaan emosional 3 detik pertama meningkatkan retensi penonton.\n2. Pesan motivasi berbasis langkah nyata mudah diterapkan sehari-hari.\n3. Pemantauan 3D langsung di setiap bangku spesialis studio.`,
     },
     {
       stageNumber: 2,
-      title: 'Generate Video Scripts',
-      description: 'Draft scene-by-scene narration, hooks, and visual callouts.',
+      title: 'Penulisan Naskah Video',
+      description: 'Menyusun narasi per adegan, hook pembuka, dan arahan visual.',
       assigneeId: 'scriptwriter',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'Production Script (4 Scenes)',
+      artifactTitle: 'Naskah Produksi (4 Adegan)',
       artifactContent:
         custom?.scriptText ??
-        `[00:00 - Hook] Welcome inside ${safeTopic} — where six specialized AI agents collaborate in real time.\n[00:08 - Context] Our Researcher gathers verified trends while Scriptwriter structures the narrative arc.\n[00:18 - Production] Graphic Designer generates thumbnails and lower-thirds as Video Editor assembles the timeline.\n[00:30 - Outro] Ready for human sign-off and instant multi-channel publishing.`,
+        `[00:00 - Hook] Selamat datang di ${safeTopic} — enam spesialis berkolaborasi secara langsung.\n[00:08 - Konteks] Asep meriset fakta terverifikasi sementara Abdul menyusun alur cerita.\n[00:18 - Produksi] Caca mendesain grafis dan thumbnail saat Rahman merakit timeline video.\n[00:30 - Penutup] Siap diperiksa Eko dan dijadwalkan publikasi oleh Riko.`,
     },
     {
       stageNumber: 3,
-      title: 'Collect & Design Assets',
-      description: 'Generate thumbnails, title cards, B-roll frames, and lower thirds.',
+      title: 'Desain Aset Visual',
+      description: 'Membuat thumbnail, diagram teknis, B-roll, dan lower third.',
       assigneeId: 'designer',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'Visual Asset Manifest',
+      artifactTitle: 'Daftar Aset Visual',
       artifactContent:
-        `• hero_thumbnail_16x9.png (High-contrast architectural layout)\n• b_roll_isometric_office_01.mp4 (1080p @ 60fps)\n• b_roll_agent_telemetry_02.mp4 (Animated pipeline diagram)\n• lower_third_pack_v2.svg (Cobalt & Slate studio typography)`,
+        `• hero_thumbnail_16x9.png (Tata letak arsitektur kontras tinggi)\n• b_roll_isometric_office_01.mp4 (1080p @ 60fps)\n• b_roll_pipeline_diagram_02.mp4 (Diagram alur produksi animasi)\n• lower_third_pack_v2.svg (Tipografi studio Biru & Slate)`,
     },
     {
       stageNumber: 4,
-      title: 'Assemble Video Clips',
-      description: 'Auto-cut B-roll, sync narration markers, and apply transitions.',
+      title: 'Perakitan Klip Video',
+      description: 'Memotong B-roll otomatis, menyelaraskan narasi, dan menambahkan transisi.',
       assigneeId: 'video_editor',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'NLE Timeline Cutlist',
+      artifactTitle: 'Daftar Potongan Timeline NLE',
       artifactContent:
-        `Timeline: ${format} · 24fps Master\nTrack V1: Opening Hook (00:00–00:08) -> Cross-dissolve 12f\nTrack V2: Studio Walkthrough (00:08–00:20) -> L-cut audio bridge\nTrack V3: Telemetry Overlay & CTA (00:20–00:36)`,
+        `Timeline: ${format} · Master 24fps\nTrack V1: Hook Pembuka (00:00–00:08) -> Cross-dissolve 12f\nTrack V2: Tur Studio (00:08–00:20) -> L-cut audio bridge\nTrack V3: Overlay Data & CTA (00:20–00:36)`,
     },
     {
       stageNumber: 5,
-      title: 'Generate Subtitles',
-      description: 'Time-align captions and format multi-platform SRT tracks.',
+      title: 'Pembuatan Subtitle',
+      description: 'Menyelaraskan waktu teks dan memformat file SRT multi-platform.',
       assigneeId: 'scriptwriter',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'Timecoded Subtitles (.SRT)',
+      artifactTitle: 'Subtitle Terjadwal (.SRT)',
       artifactContent:
         custom?.subtitlesSrt ??
-        `1\n00:00:00,000 --> 00:00:04,200\nInside ${safeTopic}, six specialized AI agents run in parallel.\n\n2\n00:00:04,300 --> 00:00:09,500\nEvery handoff from research to final render is tracked live.`,
+        `1\n00:00:00,000 --> 00:00:04,200\nDi dalam ${safeTopic}, tim spesialis bekerja secara paralel.\n\n2\n00:00:04,300 --> 00:00:09,500\nSetiap serah terima dari riset hingga render akhir terpantau langsung.`,
     },
     {
       stageNumber: 6,
-      title: 'Add Background Music',
-      description: 'Mix ambient studio underscore and duck dialogue frequencies.',
+      title: 'Penambahan Musik Latar',
+      description: 'Mencampur musik latar studio dan menyeimbangkan frekuensi dialog.',
       assigneeId: 'video_editor',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'Audio Mix & Mastering',
+      artifactTitle: 'Mixing & Mastering Audio',
       artifactContent:
         custom?.musicCue ??
-        `Track: "Architectural Pulse (Ambient Tech, 108 BPM)"\nDialogue Stem: -14 LUFS integrated\nMusic Ducking: -18 dB under voiceover transients`,
+        `Track: "Architectural Pulse (Ambient Tech, 108 BPM)"\nJalur Dialog: -14 LUFS terintegrasi\nDucking Musik: -18 dB di bawah suara narasi`,
     },
     {
       stageNumber: 7,
-      title: 'Render Final Video',
-      description: 'Encode H.264/HEVC master with loudness normalization.',
+      title: 'Render Video Final',
+      description: 'Menyandikan master H.264/AAC dengan normalisasi tingkat kenyaringan.',
       assigneeId: 'video_editor',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'Master Render Package',
+      artifactTitle: 'Paket Render Master',
       artifactContent:
-        `Codec: H.264 High Profile · 1920x1080 (or 1080x1920)\nBitrate: 18 Mbps VBR 2-Pass\nAudio: AAC 320 kbps Stereo · Loudness -14.0 LUFS`,
+        `Codec: H.264 High Profile · 1920x1080 (atau 1080x1920)\nBitrate: 18 Mbps VBR 2-Pass\nAudio: AAC 320 kbps Stereo · Loudness -14.0 LUFS`,
     },
     {
       stageNumber: 8,
-      title: 'Review & Approve Result',
-      description: 'Human-in-the-loop quality gate before Content Publisher schedules.',
+      title: 'Tinjau & Setujui Hasil',
+      description: 'Pemeriksaan kualitas oleh Yendra Owner sebelum Riko menjadwalkan rilis.',
       assigneeId: 'manager',
       status: 'Pending',
       progress: 0,
       startedAt: null,
       completedAt: null,
-      artifactTitle: 'Executive QA Gate',
+      artifactTitle: 'Gerbang Persetujuan Pimpinan',
       artifactContent:
-        `Awaiting final approval from Studio Lead. Once approved, AI Content Publisher will stage metadata and schedule distribution.`,
+        `Menunggu persetujuan akhir dari Yendra Owner. Setelah disetujui, Riko akan menyiapkan metadata dan menjadwalkan publikasi.`,
     },
   ];
 }
@@ -154,12 +310,12 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
   const employees: EmployeeProfile[] = [
     {
       id: 'manager',
-      name: 'Yendra AI Manager',
-      role: 'Operations & Task Director',
-      department: 'Executive Command',
-      workstation: 'Suite A1 · Command Desk',
-      deskPosition: [-4.8, 0, -3.5],
-      deskRotationY: Math.PI / 8,
+      name: 'Yendra Owner',
+      role: 'Guru & Pemilik Studio',
+      department: 'Pimpinan & Pengajar',
+      workstation: 'Depan Kelas · Meja Guru',
+      deskPosition: [0, 0, -4.0],
+      deskRotationY: Math.PI,
       appearance: {
         skinColor: '#e8be9e',
         hairColor: '#1e293b',
@@ -171,7 +327,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'tablet',
       },
       status: 'Working',
-      currentActivity: 'Balancing Q4 sprint queues',
+      currentActivity: 'Membimbing kelas & mengatur antrean produksi',
       currentTaskId: 'task-101',
       progress: 64,
       statusUpdatedAt: nowMs - 45000,
@@ -182,11 +338,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'researcher',
-      name: 'AI Researcher',
-      role: 'Intelligence & Topic Analyst',
-      department: 'Research Lab',
-      workstation: 'Pod B1 · Analytics Terminal',
-      deskPosition: [-4.8, 0, 1.8],
+      name: 'Asep',
+      role: 'Analis Riset & Topik',
+      department: 'Divisi Riset',
+      workstation: 'Baris 1 Kiri · Bangku 1',
+      deskPosition: [-3.6, 0, -0.7],
       deskRotationY: 0,
       appearance: {
         skinColor: '#d9a077',
@@ -199,7 +355,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'glasses',
       },
       status: 'Thinking',
-      currentActivity: 'Synthesizing market benchmarks',
+      currentActivity: 'Merangkum riset & fakta teknis',
       currentTaskId: 'task-102',
       progress: 42,
       statusUpdatedAt: nowMs - 22000,
@@ -210,11 +366,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'scriptwriter',
-      name: 'AI Scriptwriter',
-      role: 'Narrative & Script Architect',
-      department: 'Editorial Studio',
-      workstation: 'Pod B2 · Editorial Desk',
-      deskPosition: [-1.4, 0, -2.6],
+      name: 'Abdul',
+      role: 'Penulis Naskah & Narasi',
+      department: 'Divisi Naskah',
+      workstation: 'Baris 1 Tengah · Bangku 2',
+      deskPosition: [0, 0, -0.7],
       deskRotationY: 0,
       appearance: {
         skinColor: '#f2ccb0',
@@ -227,7 +383,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'headset',
       },
       status: 'Working',
-      currentActivity: 'Drafting scene-by-scene hooks',
+      currentActivity: 'Menulis hook & naskah per adegan',
       currentTaskId: 'task-103',
       progress: 78,
       statusUpdatedAt: nowMs - 38000,
@@ -238,11 +394,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'video_editor',
-      name: 'AI Video Editor',
-      role: 'Automated NLE & Motion Specialist',
-      department: 'Video Production Dept',
-      workstation: 'Bay V1 · Dual-Timeline Rig',
-      deskPosition: [0.2, 0, 2.2],
+      name: 'Rahman',
+      role: 'Editor Video & Audio',
+      department: 'Divisi Produksi Video',
+      workstation: 'Baris 2 Kiri · Bangku 4',
+      deskPosition: [-3.6, 0, 2.6],
       deskRotationY: 0,
       appearance: {
         skinColor: '#c68b63',
@@ -255,7 +411,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'headphones',
       },
       status: 'Working',
-      currentActivity: 'Auto-cutting B-roll & audio stems',
+      currentActivity: 'Memotong klip B-roll & audio',
       currentTaskId: 'task-104',
       progress: 51,
       statusUpdatedAt: nowMs - 30000,
@@ -266,12 +422,12 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'designer',
-      name: 'AI Graphic Designer',
-      role: 'Visual & Thumbnail Designer',
-      department: 'Creative Studio',
-      workstation: 'Pod C1 · Pen Display Studio',
-      deskPosition: [4.5, 0, 1.5],
-      deskRotationY: -Math.PI / 2,
+      name: 'Caca',
+      role: 'Desainer Grafis & Visual',
+      department: 'Divisi Desain',
+      workstation: 'Baris 1 Kanan · Bangku 3',
+      deskPosition: [3.6, 0, -0.7],
+      deskRotationY: 0,
       appearance: {
         skinColor: '#f5d0b5',
         hairColor: '#581c87',
@@ -283,7 +439,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'stylus',
       },
       status: 'Completed',
-      currentActivity: 'Delivered high-CTR thumbnail set',
+      currentActivity: 'Mengirim paket thumbnail & diagram',
       currentTaskId: 'task-105',
       progress: 100,
       statusUpdatedAt: nowMs - 8000,
@@ -294,12 +450,12 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'publisher',
-      name: 'AI Content Publisher',
-      role: 'Distribution & Release Lead',
-      department: 'Distribution Hub',
-      workstation: 'Pod C2 · Release Console',
-      deskPosition: [4.5, 0, 4.2],
-      deskRotationY: -Math.PI / 2,
+      name: 'Riko',
+      role: 'Koordinator Publikasi Konten',
+      department: 'Divisi Publikasi',
+      workstation: 'Baris 2 Kanan · Bangku 6',
+      deskPosition: [3.6, 0, 2.6],
+      deskRotationY: 0,
       appearance: {
         skinColor: '#8d5524',
         hairColor: '#18181b',
@@ -311,7 +467,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'watch',
       },
       status: 'Idle',
-      currentActivity: 'Standing by for approved masters',
+      currentActivity: 'Menunggu video siap tayang',
       currentTaskId: null,
       progress: 0,
       statusUpdatedAt: nowMs - 15000,
@@ -322,11 +478,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'qc',
-      name: 'AI Quality Control',
-      role: 'Technical & Broadcast QA Lead',
-      department: 'Quality Assurance',
-      workstation: 'Pod Q1 · Verification Station',
-      deskPosition: [1.2, 0, 4.5],
+      name: 'Eko',
+      role: 'Pemeriksa Kualitas Konten',
+      department: 'Divisi Kontrol Kualitas',
+      workstation: 'Baris 2 Tengah · Bangku 5',
+      deskPosition: [0, 0, 2.6],
       deskRotationY: 0,
       appearance: {
         skinColor: '#e0b394',
@@ -339,7 +495,7 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
         accessory: 'glasses',
       },
       status: 'Idle',
-      currentActivity: 'Ready to inspect 1080x1920 masters',
+      currentActivity: 'Siap memeriksa master 1080x1920',
       currentTaskId: null,
       progress: 0,
       statusUpdatedAt: nowMs - 10000,
@@ -353,11 +509,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
   const tasks: OfficeTask[] = [
     {
       id: 'task-101',
-      title: 'Orchestrate Daily Production Sprint',
+      title: 'Koordinasi Jadwal Produksi Harian',
       description:
-        'Evaluate incoming creative briefs, assign subtasks, and monitor throughput SLAs across departments.',
+        'Meninjau brief produksi, membagi tugas harian, dan memantau kelancaran setiap divisi.',
       assigneeId: 'manager',
-      department: 'Executive Command',
+      department: 'Pimpinan Utama',
       priority: 'High',
       status: 'Working',
       progress: 64,
@@ -369,11 +525,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'task-102',
-      title: 'Research AI Virtual Office Trends',
+      title: 'Riset Tren Topik Motivasi Harian',
       description:
-        'Compile competitor benchmarks, developer tooling adoption data, and citation links.',
+        'Mengumpulkan referensi psikologi positif, kutipan kuat, dan pesan inspirasi terverifikasi.',
       assigneeId: 'researcher',
-      department: 'Research Lab',
+      department: 'Divisi Riset',
       priority: 'Normal',
       status: 'Thinking',
       progress: 42,
@@ -385,11 +541,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'task-103',
-      title: 'Write Product Launch Narration Script',
+      title: 'Tulis Naskah Narasi Peluncuran Produk',
       description:
-        'Craft a crisp 45-second hook, storyboard cues, and call-to-action lines.',
+        'Menyusun hook 3 detik, petunjuk storyboard, dan kalimat penutup yang ringkas.',
       assigneeId: 'scriptwriter',
-      department: 'Editorial Studio',
+      department: 'Divisi Naskah',
       priority: 'High',
       status: 'Working',
       progress: 78,
@@ -401,11 +557,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'task-104',
-      title: 'Assemble Studio Walkthrough Cut',
+      title: 'Rakit Potongan Video Tur Studio',
       description:
-        'Sync multi-cam B-roll sequences, apply LUT color grade, and balance voiceover.',
+        'Menyelaraskan B-roll multi-kamera, koreksi warna LUT, dan menyeimbangkan suara narasi.',
       assigneeId: 'video_editor',
-      department: 'Video Production Dept',
+      department: 'Divisi Produksi Video',
       priority: 'Urgent',
       status: 'Working',
       progress: 51,
@@ -417,11 +573,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'task-105',
-      title: 'Design Isometric Feature Thumbnails',
+      title: 'Desain Thumbnail Isometrik Unggulan',
       description:
-        'Produce 3 A/B thumbnail variants with bold studio contrast and clean typography.',
+        'Membuat 3 variasi thumbnail kontras tinggi dengan tipografi bersih.',
       assigneeId: 'designer',
-      department: 'Creative Studio',
+      department: 'Divisi Desain',
       priority: 'Normal',
       status: 'Completed',
       progress: 100,
@@ -430,15 +586,15 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       completedAt: nowMs - 8000,
       estimatedSeconds: 22,
       elapsedSeconds: 22,
-      outputSummary: 'Exported 3 PNG variants (1280x720) + PSD layers.',
+      outputSummary: 'Berhasil ekspor 3 varian PNG (1280x720) + layer PSD.',
     },
     {
       id: 'task-106',
-      title: 'Verify Channel SEO Tags & Chapters',
+      title: 'Verifikasi Tag SEO & Chapter Kanal',
       description:
-        'Prepare YouTube chapters, localized descriptions, and social teaser schedule.',
+        'Menyiapkan chapter YouTube, deskripsi bahasa Indonesia, dan jadwal teaser.',
       assigneeId: 'publisher',
-      department: 'Distribution Hub',
+      department: 'Divisi Publikasi',
       priority: 'Normal',
       status: 'Queued',
       progress: 0,
@@ -450,11 +606,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'task-107',
-      title: 'Audit Motion Graphics Frame Rate',
+      title: 'Periksa Frame Rate Grafis Gerak',
       description:
-        'Ensure all lower-third overlays export cleanly at 60fps alpha.',
+        'Memastikan seluruh overlay lower-third diekspor mulus pada 60fps alpha.',
       assigneeId: 'designer',
-      department: 'Creative Studio',
+      department: 'Divisi Desain',
       priority: 'Low',
       status: 'Queued',
       progress: 0,
@@ -466,11 +622,11 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
     },
     {
       id: 'task-108',
-      title: 'Sync Legacy Webhook Schema Test',
+      title: 'Uji Skema Sinkronisasi Webhook',
       description:
-        'Validate Laravel Reverb event payload delivery against sample endpoint.',
+        'Memvalidasi pengiriman payload event Laravel Reverb ke endpoint uji coba.',
       assigneeId: 'researcher',
-      department: 'Research Lab',
+      department: 'Divisi Riset',
       priority: 'Low',
       status: 'Error',
       progress: 35,
@@ -479,20 +635,116 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       completedAt: null,
       estimatedSeconds: 20,
       elapsedSeconds: 7,
-      errorMessage: 'Demo simulation: Upstream webhook timeout (HTTP 504) — ready to retry.',
+      errorMessage: 'Simulasi demo: Timeout webhook upstream (HTTP 504) — siap diulang.',
+    },
+    {
+      id: 'task-109',
+      title: 'Briefing Standar Konten Motivasi Kelas',
+      description: 'Menetapkan standar alur kerja harian untuk seluruh anggota tim.',
+      assigneeId: 'manager',
+      department: 'Pimpinan & Pengajar',
+      priority: 'Normal',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs - 320000,
+      startedAt: nowMs - 300000,
+      completedAt: nowMs - 250000,
+      estimatedSeconds: 20,
+      elapsedSeconds: 20,
+      outputSummary: 'Standar produksi 9:16 disetujui.',
+    },
+    {
+      id: 'task-110',
+      title: 'Audit Topik Viral & Hashtag Mingguan',
+      description: 'Menyusun daftar topik motivasi dengan retensi tinggi.',
+      assigneeId: 'researcher',
+      department: 'Divisi Riset',
+      priority: 'Normal',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs - 310000,
+      startedAt: nowMs - 290000,
+      completedAt: nowMs - 240000,
+      estimatedSeconds: 22,
+      elapsedSeconds: 22,
+      outputSummary: 'Referensi topik dan kata kunci siap dipakai.',
+    },
+    {
+      id: 'task-111',
+      title: 'Template Hook 3 Detik Pertama',
+      description: 'Membuat pola kalimat pembuka yang langsung menarik perhatian.',
+      assigneeId: 'scriptwriter',
+      department: 'Divisi Naskah',
+      priority: 'Normal',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs - 300000,
+      startedAt: nowMs - 280000,
+      completedAt: nowMs - 230000,
+      estimatedSeconds: 18,
+      elapsedSeconds: 18,
+      outputSummary: 'Pola hook dan CTA tersimpan.',
+    },
+    {
+      id: 'task-112',
+      title: 'Preset Ekspor H.264 Vertikal 1080x1920',
+      description: 'Menyiapkan profil render MP4 dan subtitle kontras tinggi.',
+      assigneeId: 'video_editor',
+      department: 'Divisi Produksi Video',
+      priority: 'Normal',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs - 290000,
+      startedAt: nowMs - 270000,
+      completedAt: nowMs - 220000,
+      estimatedSeconds: 24,
+      elapsedSeconds: 24,
+      outputSummary: 'Preset FFmpeg 9:16 terkalibrasi.',
+    },
+    {
+      id: 'task-113',
+      title: 'Sinkronisasi Profil Kanal TikTok',
+      description: 'Memverifikasi integrasi publikasi dan caption otomatis.',
+      assigneeId: 'publisher',
+      department: 'Divisi Publikasi',
+      priority: 'Normal',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs - 280000,
+      startedAt: nowMs - 260000,
+      completedAt: nowMs - 210000,
+      estimatedSeconds: 16,
+      elapsedSeconds: 16,
+      outputSummary: 'Kanal publikasi siap mengirim postingan.',
+    },
+    {
+      id: 'task-114',
+      title: 'Kalibrasi Checklist QC Audio & Subtitle',
+      description: 'Menetapkan ambang batas durasi 5–60d dan rasio 9:16.',
+      assigneeId: 'qc',
+      department: 'Divisi Kontrol Kualitas',
+      priority: 'Normal',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs - 270000,
+      startedAt: nowMs - 250000,
+      completedAt: nowMs - 200000,
+      estimatedSeconds: 16,
+      elapsedSeconds: 16,
+      outputSummary: 'Standar QC video TikTok aktif.',
     },
   ];
 
   const initialVideoRun: VideoProductionRun = {
     id: 'vrun-101',
-    topic: 'How Yendra AI Office Automates Full-Stack Video Production',
+    topic: 'Disiplin Kecil Setiap Hari Mengalahkan Bakat Besar',
     format: '16:9 YouTube',
     status: 'In Progress',
     createdAt: nowMs - 40000,
     completedAt: null,
     currentStage: 1,
     stages: buildVideoStages(
-      'How Yendra AI Office Automates Full-Stack Video Production',
+      'Disiplin Kecil Setiap Hari Mengalahkan Bakat Besar',
       '16:9 YouTube',
       nowMs - 40000,
     ),
@@ -504,9 +756,9 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       id: 'log-1',
       timestamp: nowMs - 8000,
       agentId: 'designer',
-      agentName: 'AI Graphic Designer',
+      agentName: 'Caca',
       status: 'Completed',
-      message: 'Completed "Design Isometric Feature Thumbnails" (100%).',
+      message: 'Menyelesaikan "Desain Thumbnail Isometrik Unggulan" (100%).',
       taskId: 'task-105',
       source: 'demo-sim',
     },
@@ -514,9 +766,9 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       id: 'log-2',
       timestamp: nowMs - 22000,
       agentId: 'researcher',
-      agentName: 'AI Researcher',
+      agentName: 'Asep',
       status: 'Thinking',
-      message: 'Analyzing competitor data for "Research AI Virtual Office Trends".',
+      message: 'Menganalisis poin inspirasi untuk "Riset Tren Topik Motivasi Harian".',
       taskId: 'task-102',
       source: 'demo-sim',
     },
@@ -524,9 +776,9 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       id: 'log-3',
       timestamp: nowMs - 30000,
       agentId: 'video_editor',
-      agentName: 'AI Video Editor',
+      agentName: 'Rahman',
       status: 'Working',
-      message: 'Processing timeline cuts on "Assemble Studio Walkthrough Cut".',
+      message: 'Memproses potongan timeline untuk "Rakit Potongan Video Tur Studio".',
       taskId: 'task-104',
       source: 'demo-sim',
     },
@@ -534,9 +786,9 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       id: 'log-4',
       timestamp: nowMs - 38000,
       agentId: 'scriptwriter',
-      agentName: 'AI Scriptwriter',
+      agentName: 'Abdul',
       status: 'Working',
-      message: 'Writing scene beats for "Write Product Launch Narration Script".',
+      message: 'Menulis adegan naskah untuk "Tulis Naskah Narasi Peluncuran Produk".',
       taskId: 'task-103',
       source: 'demo-sim',
     },
@@ -544,9 +796,9 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       id: 'log-5',
       timestamp: nowMs - 45000,
       agentId: 'manager',
-      agentName: 'Yendra AI Manager',
+      agentName: 'Yendra Owner',
       status: 'Working',
-      message: 'Dispatched video pipeline brief to Research & Editorial teams.',
+      message: 'Membagikan brief produksi video ke tim Riset & Naskah.',
       taskId: 'task-101',
       source: 'demo-sim',
     },
@@ -554,24 +806,41 @@ export function createInitialOfficeState(nowMs: number = Date.now()): OfficeStat
       id: 'log-6',
       timestamp: nowMs - 190000,
       agentId: 'researcher',
-      agentName: 'AI Researcher',
+      agentName: 'Asep',
       status: 'Error',
-      message: 'Task "Sync Legacy Webhook Schema Test" paused on demo timeout error.',
+      message: 'Tugas "Uji Skema Sinkronisasi Webhook" terhenti karena timeout demo.',
       taskId: 'task-108',
       source: 'demo-sim',
     },
   ];
 
+  const managerEmp = employees.find((e) => e.id === 'manager') ?? employees[0];
+  const managerChair = getChairWorldSpot(managerEmp);
+  const managerPatrol: ManagerPatrolState = {
+    enabled: false,
+    phase: 'at_desk',
+    targetAgentId: null,
+    targetPos: managerChair.position,
+    targetLookAt: [managerEmp.deskPosition[0], 0, managerEmp.deskPosition[2]],
+    currentPos: managerChair.position,
+    currentYaw: managerChair.yaw,
+    dwellSeconds: 0,
+    visitedOrder: [],
+  };
+
+  const syncedEmployees = syncEmployeeTaskCounters(employees, tasks);
+
   return {
-    employees,
+    employees: syncedEmployees,
     tasks,
     activityLog,
     videoRuns: [initialVideoRun],
     activeVideoRunId: initialVideoRun.id,
     simulationRunning: true,
     simulationSpeed: 1,
-    modeLabel: 'Demo Simulation',
+    modeLabel: 'Simulasi Demo',
     lastTickAt: nowMs,
+    managerPatrol,
   };
 }
 
@@ -588,34 +857,282 @@ function appendLog(
 
 const DEMO_CYCLIC_TOPICS: Record<AgentId, Array<{ title: string; activity: string }>> = {
   manager: [
-    { title: 'Review Department Throughput', activity: 'Auditing task turnaround times' },
-    { title: 'Reprioritize Editorial Backlog', activity: 'Rebalancing agent workloads' },
+    { title: 'Tinjau Kinerja Divisi Harian', activity: 'Memeriksa waktu penyelesaian tugas' },
+    { title: 'Atur Ulang Prioritas Antrean', activity: 'Menyeimbangkan beban kerja tim' },
   ],
   researcher: [
-    { title: 'Gather Multimodal Citations', activity: 'Cross-checking primary sources' },
-    { title: 'Extract Viewer Retention Signals', activity: 'Evaluating audience hooks' },
+    { title: 'Kumpulkan Referensi Teknis', activity: 'Memeriksa ulang sumber utama' },
+    { title: 'Analisis Daya Tarik Penonton', activity: 'Mengevaluasi hook pembuka' },
   ],
   scriptwriter: [
-    { title: 'Refine Voiceover Pacing', activity: 'Polishing spoken transitions' },
-    { title: 'Draft Short-Form Teaser Copy', activity: 'Writing 30-sec vertical script' },
+    { title: 'Rapikan Tempo Narasi Suara', activity: 'Menghaluskan transisi kalimat' },
+    { title: 'Buat Naskah Video Pendek 30d', activity: 'Menulis naskah vertikal 9:16' },
   ],
   video_editor: [
-    { title: 'Color Match Studio B-Roll', activity: 'Applying ACES Filmic LUTs' },
-    { title: 'Normalize Dialogue Track', activity: 'Balancing stereo stems to -14 LUFS' },
+    { title: 'Sesuaikan Warna Klip Studio', activity: 'Menerapkan profil warna sinematik' },
+    { title: 'Normalisasi Audio Dialog', activity: 'Menyetarakan suara ke -14 LUFS' },
   ],
   designer: [
-    { title: 'Create Motion Lower Thirds', activity: 'Designing crisp title overlays' },
-    { title: 'Export Social Carousel Cards', activity: 'Rendering high-contrast graphics' },
+    { title: 'Buat Grafis Lower Third', activity: 'Mendesain overlay judul tajam' },
+    { title: 'Ekspor Kartu Visual Edukasi', activity: 'Merender grafis resolusi tinggi' },
   ],
   publisher: [
-    { title: 'Stage YouTube Metadata Pack', activity: 'Formatting tags & chapter markers' },
-    { title: 'Schedule Multi-Platform Drop', activity: 'Queued publishing calendar' },
+    { title: 'Siapkan Metadata Publikasi', activity: 'Menyusun tag & deskripsi video' },
+    { title: 'Jadwalkan Rilis Multi-Kanal', activity: 'Mengantrekan kalender tayang' },
   ],
   qc: [
-    { title: 'Verify 9:16 Subtitle Sync', activity: 'Auditing Indonesian spelling & timings' },
-    { title: 'Validate MP4 Audio & Dimensions', activity: 'Checking 1080x1920 & LUFS levels' },
+    { title: 'Periksa Sinkronisasi Subtitle', activity: 'Mengaudit ejaan & waktu teks' },
+    { title: 'Validasi Audio & Dimensi MP4', activity: 'Memeriksa format 1080x1920' },
   ],
 };
+
+function advanceManagerPatrol(
+  patrol: ManagerPatrolState,
+  employees: EmployeeProfile[],
+  activityLog: ActivityLogEntry[],
+  scaledDt: number,
+  nowMs: number,
+): {
+  managerPatrol: ManagerPatrolState;
+  employees: EmployeeProfile[];
+  activityLog: ActivityLogEntry[];
+} {
+  const managerIdx = employees.findIndex((e) => e.id === 'manager');
+  if (managerIdx === -1) {
+    return { managerPatrol: patrol, employees, activityLog };
+  }
+
+  const managerEmp = employees[managerIdx];
+  const managerChair = getChairWorldSpot(managerEmp);
+
+  if (patrol.phase === 'at_desk') {
+    if (!patrol.enabled) {
+      return {
+        managerPatrol: {
+          ...patrol,
+          currentPos: managerChair.position,
+          targetPos: managerChair.position,
+          currentYaw: managerChair.yaw,
+        },
+        employees,
+        activityLog,
+      };
+    }
+
+    const colleagues = employees.filter((e) => e.id !== 'manager');
+    if (colleagues.length === 0) {
+      return { managerPatrol: patrol, employees, activityLog };
+    }
+    const nextTarget =
+      colleagues.find((c) => !patrol.visitedOrder.includes(c.id)) ?? colleagues[0];
+    const nextVisited = patrol.visitedOrder.includes(nextTarget.id)
+      ? [nextTarget.id]
+      : [...patrol.visitedOrder, nextTarget.id];
+    const { spot, lookAt } = computeInspectionSpotForDesk(nextTarget, employees);
+
+    const nextEmployees = employees.map((e, i) =>
+      i === managerIdx
+        ? {
+            ...e,
+            currentActivity: `Berjalan memantau ${nextTarget.name}`,
+          }
+        : e,
+    );
+
+    return {
+      managerPatrol: {
+        ...patrol,
+        phase: 'walking_to_colleague',
+        targetAgentId: nextTarget.id,
+        targetPos: spot,
+        targetLookAt: lookAt,
+        dwellSeconds: 0,
+        visitedOrder: nextVisited,
+      },
+      employees: nextEmployees,
+      activityLog,
+    };
+  }
+
+  const walkSpeed = 1.95; // meters per simulated second
+  if (patrol.phase === 'walking_to_colleague' || patrol.phase === 'returning_to_desk') {
+    const dest =
+      patrol.phase === 'returning_to_desk' ? managerChair.position : patrol.targetPos;
+    const dx = dest[0] - patrol.currentPos[0];
+    const dz = dest[2] - patrol.currentPos[2];
+    const dist = Math.hypot(dx, dz);
+    const step = walkSpeed * scaledDt;
+
+    if (dist <= step + 0.08) {
+      if (patrol.phase === 'returning_to_desk') {
+        const nextEmployees = employees.map((e, i) =>
+          i === managerIdx
+            ? {
+                ...e,
+                currentActivity: 'Mengatur antrean produksi di meja pimpinan',
+              }
+            : e,
+        );
+        return {
+          managerPatrol: {
+            ...patrol,
+            phase: 'at_desk',
+            targetAgentId: null,
+            currentPos: managerChair.position,
+            targetPos: managerChair.position,
+            currentYaw: managerChair.yaw,
+            dwellSeconds: 0,
+          },
+          employees: nextEmployees,
+          activityLog,
+        };
+      }
+
+      // Arrived at colleague desk -> start inspecting!
+      const targetEmp = employees.find((e) => e.id === patrol.targetAgentId);
+      const lookYaw = targetEmp
+        ? Math.atan2(
+            targetEmp.deskPosition[0] - dest[0],
+            targetEmp.deskPosition[2] - dest[2],
+          )
+        : patrol.currentYaw;
+      const summary = targetEmp
+        ? `Memantau ${targetEmp.name}: ${targetEmp.status} (${targetEmp.progress}%)`
+        : 'Memeriksa bangku kelas';
+
+      const nextEmployees = employees.map((e, i) =>
+        i === managerIdx
+          ? {
+              ...e,
+              currentActivity: summary,
+            }
+          : e,
+      );
+      const nextLog = targetEmp
+        ? appendLog(activityLog, {
+            timestamp: nowMs,
+            agentId: 'manager',
+            agentName: managerEmp.name,
+            status: 'Working',
+            message: `Berhenti di bangku ${targetEmp.name} untuk memantau "${targetEmp.currentActivity}" (${targetEmp.progress}%).`,
+            source: 'demo-sim',
+          })
+        : activityLog;
+
+      return {
+        managerPatrol: {
+          ...patrol,
+          phase: 'inspecting',
+          currentPos: dest,
+          currentYaw: lookYaw,
+          dwellSeconds: 0,
+        },
+        employees: nextEmployees,
+        activityLog: nextLog,
+      };
+    }
+
+    const ratio = step / dist;
+    const nextPos: [number, number, number] = [
+      Number((patrol.currentPos[0] + dx * ratio).toFixed(3)),
+      0,
+      Number((patrol.currentPos[2] + dz * ratio).toFixed(3)),
+    ];
+    const travelYaw = Math.atan2(dx, dz);
+
+    return {
+      managerPatrol: {
+        ...patrol,
+        targetPos: dest,
+        currentPos: nextPos,
+        currentYaw: travelYaw,
+      },
+      employees,
+      activityLog,
+    };
+  }
+
+  // phase === 'inspecting'
+  const nextDwell = patrol.dwellSeconds + scaledDt;
+  const targetEmp = employees.find((e) => e.id === patrol.targetAgentId);
+  const dwellLimit = patrol.enabled ? 4.5 : 5.5;
+
+  if (nextDwell < dwellLimit) {
+    const nextEmployees =
+      targetEmp
+        ? employees.map((e, i) =>
+            i === managerIdx
+              ? {
+                  ...e,
+                  currentActivity: `Memantau ${targetEmp.name}: ${targetEmp.status} (${targetEmp.progress}%)`,
+                }
+              : e,
+          )
+        : employees;
+    return {
+      managerPatrol: {
+        ...patrol,
+        dwellSeconds: nextDwell,
+      },
+      employees: nextEmployees,
+      activityLog,
+    };
+  }
+
+  if (patrol.enabled) {
+    const colleagues = employees.filter((e) => e.id !== 'manager');
+    if (colleagues.length > 0) {
+      const nextTarget =
+        colleagues.find((c) => !patrol.visitedOrder.includes(c.id)) ?? colleagues[0];
+      const nextVisited = patrol.visitedOrder.includes(nextTarget.id)
+        ? [nextTarget.id]
+        : [...patrol.visitedOrder, nextTarget.id];
+      const { spot, lookAt } = computeInspectionSpotForDesk(nextTarget, employees);
+      const nextEmployees = employees.map((e, i) =>
+        i === managerIdx
+          ? {
+              ...e,
+              currentActivity: `Berjalan memantau ${nextTarget.name}`,
+            }
+          : e,
+      );
+      return {
+        managerPatrol: {
+          ...patrol,
+          phase: 'walking_to_colleague',
+          targetAgentId: nextTarget.id,
+          targetPos: spot,
+          targetLookAt: lookAt,
+          dwellSeconds: 0,
+          visitedOrder: nextVisited,
+        },
+        employees: nextEmployees,
+        activityLog,
+      };
+    }
+  }
+
+  const nextEmployees = employees.map((e, i) =>
+    i === managerIdx
+      ? {
+          ...e,
+          currentActivity: 'Kembali ke Meja Guru',
+        }
+      : e,
+  );
+  return {
+    managerPatrol: {
+      ...patrol,
+      phase: 'returning_to_desk',
+      targetAgentId: null,
+      targetPos: managerChair.position,
+      targetLookAt: [managerEmp.deskPosition[0], 0, managerEmp.deskPosition[2]],
+      dwellSeconds: 0,
+    },
+    employees: nextEmployees,
+    activityLog,
+  };
+}
 
 export function stepOfficeSimulation(
   state: OfficeState,
@@ -660,14 +1177,14 @@ export function stepOfficeSimulation(
         currentTask.status = 'Completed';
         currentTask.completedAt = nowMs;
         currentTask.outputSummary =
-          currentTask.outputSummary ?? 'Completed cleanly in Demo Simulation.';
+          currentTask.outputSummary ?? 'Selesai dengan baik di Simulasi Demo.';
 
         activityLog = appendLog(activityLog, {
           timestamp: nowMs,
           agentId: emp.id,
           agentName: emp.name,
           status: 'Completed',
-          message: `Completed "${currentTask.title}" (100%).`,
+          message: `Menyelesaikan "${currentTask.title}" (100%).`,
           taskId: currentTask.id,
           source: 'demo-sim',
         });
@@ -675,7 +1192,7 @@ export function stepOfficeSimulation(
         return {
           ...emp,
           status: 'Completed' as AgentStatus,
-          currentActivity: `Finished ${currentTask.title}`,
+          currentActivity: `Selesai: ${currentTask.title}`,
           progress: 100,
           statusUpdatedAt: nowMs,
           tasksCompleted: emp.tasksCompleted + 1,
@@ -692,8 +1209,8 @@ export function stepOfficeSimulation(
           status: nextStatus,
           message:
             nextStatus === 'Working'
-              ? `Executing "${currentTask.title}".`
-              : `Thinking through "${currentTask.title}".`,
+              ? `Mengerjakan "${currentTask.title}".`
+              : `Menganalisis "${currentTask.title}".`,
           taskId: currentTask.id,
           source: 'demo-sim',
         });
@@ -731,7 +1248,7 @@ export function stepOfficeSimulation(
           agentId: emp.id,
           agentName: emp.name,
           status: 'Thinking',
-          message: `Picked up queued task "${queued.title}".`,
+          message: `Mengambil tugas antrean "${queued.title}".`,
           taskId: queued.id,
           source: 'demo-sim',
         });
@@ -752,7 +1269,7 @@ export function stepOfficeSimulation(
           ...emp,
           status: 'Idle' as AgentStatus,
           currentTaskId: null,
-          currentActivity: 'Ready for next assignment',
+          currentActivity: 'Siap menerima tugas berikutnya',
           progress: 0,
           statusUpdatedAt: nowMs,
         };
@@ -764,7 +1281,7 @@ export function stepOfficeSimulation(
         const newTask: OfficeTask = {
           id: nextId('task'),
           title: pick.title,
-          description: `Autonomous demo routine executed by ${emp.name}.`,
+          description: `Rutinitas kerja otomatis oleh ${emp.name}.`,
           assigneeId: emp.id,
           department: emp.department,
           priority: 'Normal',
@@ -783,7 +1300,7 @@ export function stepOfficeSimulation(
           agentId: emp.id,
           agentName: emp.name,
           status: 'Working',
-          message: `Started autonomous task "${newTask.title}".`,
+          message: `Memulai tugas "${newTask.title}".`,
           taskId: newTask.id,
           source: 'demo-sim',
         });
@@ -837,7 +1354,7 @@ export function stepOfficeSimulation(
       employees[empIdx] = {
         ...employees[empIdx],
         status: activeStage.progress < 25 ? 'Thinking' : 'Working',
-        currentActivity: `Video Step ${activeStage.stageNumber}/8: ${activeStage.title}`,
+        currentActivity: `Tahap Video ${activeStage.stageNumber}/8: ${activeStage.title}`,
         progress: activeStage.progress,
       };
     }
@@ -848,12 +1365,34 @@ export function stepOfficeSimulation(
       activeStage.completedAt = nowMs;
 
       const stageOwner = employees.find((e) => e.id === activeStage.assigneeId);
+      const stageTaskId = nextId('vstage-task');
+      tasks = [
+        {
+          id: stageTaskId,
+          title: `Tahap ${activeStage.stageNumber}/8: ${activeStage.title} (${run.topic})`,
+          description: activeStage.description,
+          assigneeId: activeStage.assigneeId,
+          department: stageOwner?.department ?? 'Produksi Video',
+          priority: 'High',
+          status: 'Completed',
+          progress: 100,
+          createdAt: activeStage.startedAt ?? nowMs,
+          startedAt: activeStage.startedAt ?? nowMs,
+          completedAt: nowMs,
+          estimatedSeconds: 8,
+          elapsedSeconds: 8,
+          outputSummary: activeStage.artifactTitle,
+        },
+        ...tasks,
+      ];
+
       activityLog = appendLog(activityLog, {
         timestamp: nowMs,
         agentId: activeStage.assigneeId,
-        agentName: stageOwner?.name ?? 'AI Agent',
+        agentName: stageOwner?.name ?? 'Karyawan',
         status: 'Completed',
-        message: `Video Pipeline Step ${activeStage.stageNumber}/8 completed: ${activeStage.title}.`,
+        message: `Tahap Video ${activeStage.stageNumber}/8 selesai: ${activeStage.title}.`,
+        taskId: stageTaskId,
         source: 'demo-sim',
       });
 
@@ -864,12 +1403,14 @@ export function stepOfficeSimulation(
         nextStage.progress = nextStage.stageNumber === 8 ? 100 : 8;
 
         if (nextStage.stageNumber === 8) {
+          const managerName =
+            employees.find((e) => e.id === 'manager')?.name ?? 'Yendra Owner';
           activityLog = appendLog(activityLog, {
             timestamp: nowMs,
             agentId: 'manager',
-            agentName: 'Yendra AI Manager',
+            agentName: managerName,
             status: 'Completed',
-            message: `Video "${run.topic}" rendered & ready for User Review & Approval.`,
+            message: `Video "${run.topic}" selesai dirender & siap ditinjau.`,
             source: 'demo-sim',
           });
           return {
@@ -894,12 +1435,22 @@ export function stepOfficeSimulation(
     };
   });
 
+  // 4. Advance Manager walking patrol & desk inspection loop
+  const patrolStep = advanceManagerPatrol(
+    state.managerPatrol,
+    employees,
+    activityLog,
+    scaledDt,
+    nowMs,
+  );
+
   return {
     ...state,
-    employees,
+    employees: syncEmployeeTaskCounters(patrolStep.employees, tasks),
     tasks,
-    activityLog,
+    activityLog: patrolStep.activityLog,
     videoRuns,
+    managerPatrol: patrolStep.managerPatrol,
     lastTickAt: nowMs,
   };
 }
@@ -926,11 +1477,14 @@ export function assignTaskToAgent(
   const shouldStartImmediately =
     targetEmp.status === 'Idle' || targetEmp.status === 'Completed';
 
+  const managerName =
+    state.employees.find((e) => e.id === 'manager')?.name ?? 'Yendra Owner';
+
   const newTask: OfficeTask = {
     id: nextId('task'),
     title,
     description:
-      input.description.trim() || `Assigned by Yendra AI Manager to ${targetEmp.name}.`,
+      input.description.trim() || `Ditugaskan oleh ${managerName} kepada ${targetEmp.name}.`,
     assigneeId: input.assigneeId,
     department: targetEmp.department,
     priority: input.priority,
@@ -963,8 +1517,8 @@ export function assignTaskToAgent(
     agentName: targetEmp.name,
     status: shouldStartImmediately ? 'Thinking' : 'Idle',
     message: shouldStartImmediately
-      ? `Manager assigned "${newTask.title}" — started immediately.`
-      : `Manager queued "${newTask.title}" (${input.priority} priority).`,
+      ? `${managerName} menugaskan "${newTask.title}" — langsung dikerjakan.`
+      : `${managerName} mengantrekan "${newTask.title}" (prioritas ${input.priority}).`,
     taskId: newTask.id,
     source: 'manual',
   });
@@ -1041,7 +1595,7 @@ export function triggerAgentError(
 
   return {
     ...state,
-    employees,
+    employees: syncEmployeeTaskCounters(employees, tasks),
     tasks,
     activityLog,
   };
@@ -1070,17 +1624,20 @@ export function retryFailedTask(
       : t,
   );
 
-  const employees = state.employees.map((e) =>
-    e.id === target.assigneeId
-      ? {
-          ...e,
-          status: 'Working' as AgentStatus,
-          currentTaskId: target.id,
-          currentActivity: `Retrying: ${target.title}`,
-          progress: Math.max(15, target.progress),
-          statusUpdatedAt: nowMs,
-        }
-      : e,
+  const employees = syncEmployeeTaskCounters(
+    state.employees.map((e) =>
+      e.id === target.assigneeId
+        ? {
+            ...e,
+            status: 'Working' as AgentStatus,
+            currentTaskId: target.id,
+            currentActivity: `Retrying: ${target.title}`,
+            progress: Math.max(15, target.progress),
+            statusUpdatedAt: nowMs,
+          }
+        : e,
+    ),
+    tasks,
   );
 
   const activityLog = appendLog(state.activityLog, {
@@ -1112,26 +1669,29 @@ export function cancelTask(
   const emp = state.employees.find((e) => e.id === target.assigneeId);
   const tasks = state.tasks.filter((t) => t.id !== taskId);
 
-  const employees = state.employees.map((e) => {
-    if (e.currentTaskId === taskId) {
-      return {
-        ...e,
-        status: 'Idle' as AgentStatus,
-        currentTaskId: null,
-        currentActivity: 'Task removed from queue',
-        progress: 0,
-        statusUpdatedAt: nowMs,
-      };
-    }
-    return e;
-  });
+  const employees = syncEmployeeTaskCounters(
+    state.employees.map((e) => {
+      if (e.currentTaskId === taskId) {
+        return {
+          ...e,
+          status: 'Idle' as AgentStatus,
+          currentTaskId: null,
+          currentActivity: 'Task removed from queue',
+          progress: 0,
+          statusUpdatedAt: nowMs,
+        };
+      }
+      return e;
+    }),
+    tasks,
+  );
 
   const activityLog = appendLog(state.activityLog, {
     timestamp: nowMs,
     agentId: target.assigneeId,
-    agentName: emp?.name ?? 'AI Agent',
+    agentName: emp?.name ?? 'Karyawan',
     status: 'Idle',
-    message: `Cancelled task "${target.title}".`,
+    message: `Membatalkan tugas "${target.title}".`,
     source: 'manual',
   });
 
@@ -1151,6 +1711,9 @@ export function startVideoProductionRun(
   const topic = input.topic.trim();
   if (!topic) return state;
 
+  const managerName =
+    state.employees.find((e) => e.id === 'manager')?.name ?? 'Yendra Owner';
+
   const newRun: VideoProductionRun = {
     id: nextId('vrun'),
     topic,
@@ -1166,9 +1729,9 @@ export function startVideoProductionRun(
   const activityLog = appendLog(state.activityLog, {
     timestamp: nowMs,
     agentId: 'manager',
-    agentName: 'Yendra AI Manager',
+    agentName: managerName,
     status: 'Working',
-    message: `Launched 8-step Video Production Run: "${topic}" (${input.format}).`,
+    message: `Memulai Produksi Video 8-Tahap: "${topic}" (${input.format}).`,
     source: input.geminiAssisted ? 'gemini-api' : 'manual',
   });
 
@@ -1183,11 +1746,14 @@ export function startVideoProductionRun(
 export function approveVideoRun(
   state: OfficeState,
   runId: string,
-  notes: string = 'Approved for multi-channel release.',
+  notes: string = 'Disetujui untuk rilis multi-kanal.',
   nowMs: number = Date.now(),
 ): OfficeState {
   const run = state.videoRuns.find((r) => r.id === runId);
   if (!run) return state;
+
+  const publisherName =
+    state.employees.find((e) => e.id === 'publisher')?.name ?? 'Riko';
 
   const videoRuns = state.videoRuns.map((r) => {
     if (r.id !== runId) return r;
@@ -1210,25 +1776,51 @@ export function approveVideoRun(
     };
   });
 
-  const employees = state.employees.map((e) =>
-    e.id === 'publisher'
-      ? {
-          ...e,
-          status: 'Completed' as AgentStatus,
-          currentActivity: `Staged "${run.topic}" for publishing`,
-          progress: 100,
-          statusUpdatedAt: nowMs,
-          tasksCompleted: e.tasksCompleted + 1,
-        }
-      : e,
+  const publishTaskId = nextId('pub-task');
+  const publishEmp = state.employees.find((e) => e.id === 'publisher');
+  const tasks: OfficeTask[] = [
+    {
+      id: publishTaskId,
+      title: `Publikasi Video: ${run.topic}`,
+      description: notes,
+      assigneeId: 'publisher',
+      department: publishEmp?.department ?? 'Divisi Publikasi',
+      priority: 'High',
+      status: 'Completed',
+      progress: 100,
+      createdAt: nowMs,
+      startedAt: nowMs,
+      completedAt: nowMs,
+      estimatedSeconds: 10,
+      elapsedSeconds: 10,
+      outputSummary: notes,
+    },
+    ...state.tasks,
+  ];
+
+  const employees = syncEmployeeTaskCounters(
+    state.employees.map((e) =>
+      e.id === 'publisher'
+        ? {
+            ...e,
+            status: 'Completed' as AgentStatus,
+            currentActivity: `Menyiapkan rilis "${run.topic}"`,
+            currentTaskId: publishTaskId,
+            progress: 100,
+            statusUpdatedAt: nowMs,
+          }
+        : e,
+    ),
+    tasks,
   );
 
   const activityLog = appendLog(state.activityLog, {
     timestamp: nowMs,
     agentId: 'publisher',
-    agentName: 'AI Content Publisher',
+    agentName: publisherName,
     status: 'Completed',
-    message: `Approved & queued "${run.topic}" for publishing.`,
+    message: `Menyetujui & menjadwalkan publikasi "${run.topic}".`,
+    taskId: publishTaskId,
     source: 'manual',
   });
 
@@ -1236,6 +1828,7 @@ export function approveVideoRun(
     ...state,
     videoRuns,
     employees,
+    tasks,
     activityLog,
   };
 }
@@ -1248,6 +1841,9 @@ export function requestVideoRevision(
 ): OfficeState {
   const run = state.videoRuns.find((r) => r.id === runId);
   if (!run) return state;
+
+  const editorName =
+    state.employees.find((e) => e.id === 'video_editor')?.name ?? 'Rahman';
 
   const videoRuns = state.videoRuns.map((r) => {
     if (r.id !== runId) return r;
@@ -1275,7 +1871,7 @@ export function requestVideoRevision(
       ...r,
       status: 'In Progress' as const,
       currentStage: 4,
-      reviewNotes: notes || 'Revision requested on assembly & pacing.',
+      reviewNotes: notes || 'Revisi diminta pada penyusunan klip & tempo.',
       stages,
     };
   });
@@ -1283,9 +1879,9 @@ export function requestVideoRevision(
   const activityLog = appendLog(state.activityLog, {
     timestamp: nowMs,
     agentId: 'video_editor',
-    agentName: 'AI Video Editor',
+    agentName: editorName,
     status: 'Working',
-    message: `Revision requested on "${run.topic}" — re-entering Step 4 Clip Assembly.`,
+    message: `Revisi diminta untuk "${run.topic}" — kembali ke Tahap 4 Perakitan Klip.`,
     source: 'manual',
   });
 
@@ -1306,44 +1902,76 @@ export function applyExternalAgentEvent(
   if (!emp) return state;
 
   const clampedProgress = Math.max(0, Math.min(100, Math.round(progress)));
-  let tasks = [...state.tasks];
+  let tasks = state.tasks.map((t) => ({ ...t }));
   let currentTaskId = emp.currentTaskId;
+  const resolvedTaskStatus: OfficeTask['status'] =
+    status === 'Idle' ? 'Queued' : status;
 
   if (taskTitle) {
-    const newTask: OfficeTask = {
-      id: nextId('evt-task'),
-      title: taskTitle,
-      description: `External event received on channel "${event.channel}" (${event.event}).`,
-      assigneeId: agentId,
-      department: emp.department,
-      priority: 'High',
-      status: status === 'Idle' ? 'Queued' : status,
-      progress: clampedProgress,
-      createdAt: nowMs,
-      startedAt: nowMs,
-      completedAt: status === 'Completed' ? nowMs : null,
-      estimatedSeconds: 30,
-      elapsedSeconds: 0,
-      errorMessage,
-    };
-    tasks = [newTask, ...tasks];
-    currentTaskId = newTask.id;
+    const existingIdx = tasks.findIndex(
+      (t) =>
+        t.assigneeId === agentId &&
+        t.title === taskTitle &&
+        t.status !== 'Completed',
+    );
+    if (existingIdx !== -1) {
+      tasks[existingIdx] = {
+        ...tasks[existingIdx],
+        status: resolvedTaskStatus,
+        progress: clampedProgress,
+        startedAt: tasks[existingIdx].startedAt ?? nowMs,
+        completedAt: status === 'Completed' ? nowMs : null,
+        errorMessage,
+      };
+      currentTaskId = tasks[existingIdx].id;
+    } else if (status !== 'Idle') {
+      const newTask: OfficeTask = {
+        id: nextId('evt-task'),
+        title: taskTitle,
+        description: `Event produksi langsung pada kanal "${event.channel}" (${event.event}).`,
+        assigneeId: agentId,
+        department: emp.department,
+        priority: 'High',
+        status: resolvedTaskStatus,
+        progress: clampedProgress,
+        createdAt: nowMs,
+        startedAt: nowMs,
+        completedAt: status === 'Completed' ? nowMs : null,
+        estimatedSeconds: 30,
+        elapsedSeconds: 0,
+        errorMessage,
+      };
+      tasks = [newTask, ...tasks];
+      currentTaskId = newTask.id;
+    }
+  } else if (currentTaskId && (status === 'Completed' || status === 'Error' || status === 'Working' || status === 'Thinking')) {
+    tasks = tasks.map((t) =>
+      t.id === currentTaskId
+        ? {
+            ...t,
+            status: resolvedTaskStatus,
+            progress: clampedProgress,
+            completedAt: status === 'Completed' ? nowMs : t.completedAt,
+            errorMessage: errorMessage ?? t.errorMessage,
+          }
+        : t,
+    );
   }
 
-  const employees = state.employees.map((e) =>
-    e.id === agentId
-      ? {
-          ...e,
-          status,
-          currentActivity: activity,
-          progress: clampedProgress,
-          currentTaskId,
-          statusUpdatedAt: nowMs,
-          tasksCompleted:
-            status === 'Completed' ? e.tasksCompleted + 1 : e.tasksCompleted,
-          tasksFailed: status === 'Error' ? e.tasksFailed + 1 : e.tasksFailed,
-        }
-      : e,
+  const employees = syncEmployeeTaskCounters(
+    state.employees.map((e) =>
+      e.id === agentId
+        ? {
+            ...e,
+            status,
+            currentActivity: activity,
+            progress: clampedProgress,
+            currentTaskId,
+            statusUpdatedAt: nowMs,
+          }
+        : e,
+    ),
+    tasks,
   );
 
   const activityLog = appendLog(state.activityLog, {
@@ -1361,6 +1989,431 @@ export function applyExternalAgentEvent(
     employees,
     tasks,
     activityLog,
+  };
+}
+
+export function renameEmployee(
+  state: OfficeState,
+  agentId: AgentId,
+  newName: string,
+  nowMs: number = Date.now(),
+): OfficeState {
+  const trimmed = newName.trim().slice(0, 40);
+  if (!trimmed) return state;
+
+  const existing = state.employees.find((e) => e.id === agentId);
+  if (!existing || existing.name === trimmed) return state;
+
+  const oldName = existing.name;
+  const employees = state.employees.map((e) =>
+    e.id === agentId ? { ...e, name: trimmed } : e,
+  );
+
+  const activityLog = appendLog(state.activityLog, {
+    timestamp: nowMs,
+    agentId,
+    agentName: trimmed,
+    status: existing.status,
+    message: `Renamed employee "${oldName}" to "${trimmed}".`,
+    source: 'manual',
+  });
+
+  return {
+    ...state,
+    employees,
+    activityLog,
+  };
+}
+
+export function moveEmployeeSeat(
+  state: OfficeState,
+  agentId: AgentId,
+  targetPos: [number, number, number],
+  rotationY?: number,
+  nowMs: number = Date.now(),
+): OfficeState {
+  const emp = state.employees.find((e) => e.id === agentId);
+  if (!emp) return state;
+
+  const resolvedPos = resolveValidSeatPosition(
+    targetPos[0],
+    targetPos[2],
+    agentId,
+    state.employees,
+  );
+  const nextRot = rotationY !== undefined ? rotationY : emp.deskRotationY;
+
+  const employees = state.employees.map((e) =>
+    e.id === agentId
+      ? { ...e, deskPosition: resolvedPos, deskRotationY: nextRot }
+      : e,
+  );
+
+  let managerPatrol = { ...state.managerPatrol };
+  const movedManager = employees.find((e) => e.id === 'manager');
+  if (agentId === 'manager' && movedManager) {
+    const chair = getChairWorldSpot(movedManager);
+    if (managerPatrol.phase === 'at_desk') {
+      managerPatrol = {
+        ...managerPatrol,
+        currentPos: chair.position,
+        targetPos: chair.position,
+        currentYaw: chair.yaw,
+        targetLookAt: [movedManager.deskPosition[0], 0, movedManager.deskPosition[2]],
+      };
+    } else if (managerPatrol.phase === 'returning_to_desk') {
+      managerPatrol = {
+        ...managerPatrol,
+        targetPos: chair.position,
+        targetLookAt: [movedManager.deskPosition[0], 0, movedManager.deskPosition[2]],
+      };
+    }
+  } else if (managerPatrol.targetAgentId === agentId) {
+    const movedTarget = employees.find((e) => e.id === agentId);
+    if (movedTarget) {
+      const { spot, lookAt } = computeInspectionSpotForDesk(movedTarget, employees);
+      managerPatrol = {
+        ...managerPatrol,
+        targetPos: spot,
+        targetLookAt: lookAt,
+      };
+    }
+  }
+
+  const activityLog = appendLog(state.activityLog, {
+    timestamp: nowMs,
+    agentId,
+    agentName: emp.name,
+    status: emp.status,
+    message: `Moved ${emp.name}'s workstation to (${resolvedPos[0]}, ${resolvedPos[2]}).`,
+    source: 'manual',
+  });
+
+  return {
+    ...state,
+    employees,
+    managerPatrol,
+    activityLog,
+  };
+}
+
+export function rotateEmployeeSeat(
+  state: OfficeState,
+  agentId: AgentId,
+  deltaRadians: number = Math.PI / 2,
+  nowMs: number = Date.now(),
+): OfficeState {
+  const emp = state.employees.find((e) => e.id === agentId);
+  if (!emp) return state;
+
+  const nextRot = (emp.deskRotationY + deltaRadians) % (Math.PI * 2);
+  const employees = state.employees.map((e) =>
+    e.id === agentId ? { ...e, deskRotationY: nextRot } : e,
+  );
+
+  let managerPatrol = { ...state.managerPatrol };
+  if (agentId === 'manager' && managerPatrol.phase === 'at_desk') {
+    const movedManager = employees.find((e) => e.id === 'manager')!;
+    const chair = getChairWorldSpot(movedManager);
+    managerPatrol = {
+      ...managerPatrol,
+      currentPos: chair.position,
+      targetPos: chair.position,
+      currentYaw: chair.yaw,
+    };
+  }
+
+  const activityLog = appendLog(state.activityLog, {
+    timestamp: nowMs,
+    agentId,
+    agentName: emp.name,
+    status: emp.status,
+    message: `Rotated ${emp.name}'s workstation 90°.`,
+    source: 'manual',
+  });
+
+  return {
+    ...state,
+    employees,
+    managerPatrol,
+    activityLog,
+  };
+}
+
+export function swapEmployeeSeats(
+  state: OfficeState,
+  agentA: AgentId,
+  agentB: AgentId,
+  nowMs: number = Date.now(),
+): OfficeState {
+  if (agentA === agentB) return state;
+  const empA = state.employees.find((e) => e.id === agentA);
+  const empB = state.employees.find((e) => e.id === agentB);
+  if (!empA || !empB) return state;
+
+  const employees = state.employees.map((e) => {
+    if (e.id === agentA) {
+      return {
+        ...e,
+        deskPosition: [...empB.deskPosition] as [number, number, number],
+        deskRotationY: empB.deskRotationY,
+      };
+    }
+    if (e.id === agentB) {
+      return {
+        ...e,
+        deskPosition: [...empA.deskPosition] as [number, number, number],
+        deskRotationY: empA.deskRotationY,
+      };
+    }
+    return e;
+  });
+
+  let managerPatrol = { ...state.managerPatrol };
+  const managerEmp = employees.find((e) => e.id === 'manager');
+  if ((agentA === 'manager' || agentB === 'manager') && managerEmp) {
+    const chair = getChairWorldSpot(managerEmp);
+    if (managerPatrol.phase === 'at_desk') {
+      managerPatrol = {
+        ...managerPatrol,
+        currentPos: chair.position,
+        targetPos: chair.position,
+        currentYaw: chair.yaw,
+      };
+    }
+  }
+
+  const activityLog = appendLog(state.activityLog, {
+    timestamp: nowMs,
+    agentId: agentA,
+    agentName: empA.name,
+    status: empA.status,
+    message: `Swapped workstation seats between ${empA.name} and ${empB.name}.`,
+    source: 'manual',
+  });
+
+  return {
+    ...state,
+    employees,
+    managerPatrol,
+    activityLog,
+  };
+}
+
+export function setManagerPatrolEnabled(
+  state: OfficeState,
+  enabled: boolean,
+  nowMs: number = Date.now(),
+): OfficeState {
+  const managerEmp = state.employees.find((e) => e.id === 'manager');
+  if (!managerEmp) return state;
+  const managerChair = getChairWorldSpot(managerEmp);
+
+  if (enabled) {
+    const colleagues = state.employees.filter((e) => e.id !== 'manager');
+    if (colleagues.length === 0) return state;
+    const firstTarget = colleagues[0];
+    const { spot, lookAt } = computeInspectionSpotForDesk(firstTarget, state.employees);
+    const startPos =
+      state.managerPatrol.phase === 'at_desk'
+        ? managerChair.position
+        : state.managerPatrol.currentPos;
+
+    const employees = state.employees.map((e) =>
+      e.id === 'manager'
+        ? { ...e, currentActivity: `Guru keliling · menuju bangku ${firstTarget.name}` }
+        : e,
+    );
+    const activityLog = appendLog(state.activityLog, {
+      timestamp: nowMs,
+      agentId: 'manager',
+      agentName: managerEmp.name,
+      status: 'Working',
+      message: `${managerEmp.name} mulai berkeliling memantau seluruh bangku kelas.`,
+      source: 'manual',
+    });
+
+    return {
+      ...state,
+      employees,
+      activityLog,
+      managerPatrol: {
+        ...state.managerPatrol,
+        enabled: true,
+        phase: 'walking_to_colleague',
+        targetAgentId: firstTarget.id,
+        targetPos: spot,
+        targetLookAt: lookAt,
+        currentPos: startPos,
+        dwellSeconds: 0,
+        visitedOrder: [firstTarget.id],
+      },
+    };
+  }
+
+  if (state.managerPatrol.phase === 'at_desk') {
+    return {
+      ...state,
+      managerPatrol: {
+        ...state.managerPatrol,
+        enabled: false,
+      },
+    };
+  }
+
+  const employees = state.employees.map((e) =>
+    e.id === 'manager'
+      ? { ...e, currentActivity: 'Kembali ke Meja Guru' }
+      : e,
+  );
+  const activityLog = appendLog(state.activityLog, {
+    timestamp: nowMs,
+    agentId: 'manager',
+    agentName: managerEmp.name,
+    status: 'Working',
+    message: `${managerEmp.name} mengakhiri patroli dan kembali ke Meja Guru.`,
+    source: 'manual',
+  });
+
+  return {
+    ...state,
+    employees,
+    activityLog,
+    managerPatrol: {
+      ...state.managerPatrol,
+      enabled: false,
+      phase: 'returning_to_desk',
+      targetAgentId: null,
+      targetPos: managerChair.position,
+      targetLookAt: [managerEmp.deskPosition[0], 0, managerEmp.deskPosition[2]],
+      dwellSeconds: 0,
+    },
+  };
+}
+
+export function sendManagerToInspect(
+  state: OfficeState,
+  targetAgentId: AgentId,
+  nowMs: number = Date.now(),
+): OfficeState {
+  const managerEmp = state.employees.find((e) => e.id === 'manager');
+  if (!managerEmp) return state;
+
+  if (targetAgentId === 'manager') {
+    return setManagerPatrolEnabled(state, false, nowMs);
+  }
+
+  const targetEmp = state.employees.find((e) => e.id === targetAgentId);
+  if (!targetEmp) return state;
+
+  const managerChair = getChairWorldSpot(managerEmp);
+  const startPos =
+    state.managerPatrol.phase === 'at_desk'
+      ? managerChair.position
+      : state.managerPatrol.currentPos;
+  const { spot, lookAt } = computeInspectionSpotForDesk(targetEmp, state.employees);
+
+  const employees = state.employees.map((e) =>
+    e.id === 'manager'
+      ? { ...e, currentActivity: `Berjalan memantau ${targetEmp.name}` }
+      : e,
+  );
+
+  const activityLog = appendLog(state.activityLog, {
+    timestamp: nowMs,
+    agentId: 'manager',
+    agentName: managerEmp.name,
+    status: 'Working',
+    message: `${managerEmp.name} berjalan menuju meja ${targetEmp.name} untuk memantau pekerjaan.`,
+    source: 'manual',
+  });
+
+  return {
+    ...state,
+    employees,
+    activityLog,
+    managerPatrol: {
+      ...state.managerPatrol,
+      phase: 'walking_to_colleague',
+      targetAgentId,
+      targetPos: spot,
+      targetLookAt: lookAt,
+      currentPos: startPos,
+      dwellSeconds: 0,
+    },
+  };
+}
+
+export interface OfficeCustomizationRecord {
+  names?: Partial<Record<AgentId, string>>;
+  seats?: Partial<
+    Record<AgentId, { deskPosition: [number, number, number]; deskRotationY: number }>
+  >;
+}
+
+const LEGACY_DEFAULT_NAMES = new Set([
+  'Yendra AI Manager',
+  'AI Researcher',
+  'AI Scriptwriter',
+  'AI Video Editor',
+  'AI Graphic Designer',
+  'AI Content Publisher',
+  'AI Quality Control',
+]);
+
+const LEGACY_DEFAULT_OFFICE_POSITIONS: Record<AgentId, string> = {
+  manager: '-4.8,-3.5',
+  researcher: '-4.8,1.8',
+  scriptwriter: '-1.4,-2.6',
+  video_editor: '0.2,2.2',
+  designer: '4.5,1.5',
+  publisher: '4.5,4.2',
+  qc: '1.2,4.5',
+};
+
+export function applyOfficeCustomizations(
+  state: OfficeState,
+  custom: OfficeCustomizationRecord | null | undefined,
+): OfficeState {
+  if (!custom) return state;
+
+  const employees = state.employees.map((emp) => {
+    const rawCustomName = custom.names?.[emp.id]?.trim();
+    const customName =
+      rawCustomName && !LEGACY_DEFAULT_NAMES.has(rawCustomName) ? rawCustomName : '';
+    const customSeat = custom.seats?.[emp.id];
+    const seatKey = customSeat
+      ? `${customSeat.deskPosition[0]},${customSeat.deskPosition[2]}`
+      : '';
+    const isLegacySeat =
+      seatKey !== '' && LEGACY_DEFAULT_OFFICE_POSITIONS[emp.id] === seatKey;
+
+    return {
+      ...emp,
+      name: customName ? customName.slice(0, 40) : emp.name,
+      deskPosition:
+        customSeat && !isLegacySeat ? customSeat.deskPosition : emp.deskPosition,
+      deskRotationY:
+        customSeat && !isLegacySeat && typeof customSeat.deskRotationY === 'number'
+          ? customSeat.deskRotationY
+          : emp.deskRotationY,
+    };
+  });
+
+  const managerEmp = employees.find((e) => e.id === 'manager');
+  const managerPatrol = managerEmp
+    ? {
+        ...state.managerPatrol,
+        currentPos: getChairWorldSpot(managerEmp).position,
+        targetPos: getChairWorldSpot(managerEmp).position,
+        currentYaw: getChairWorldSpot(managerEmp).yaw,
+      }
+    : state.managerPatrol;
+
+  return {
+    ...state,
+    employees,
+    managerPatrol,
   };
 }
 

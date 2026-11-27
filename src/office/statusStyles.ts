@@ -10,7 +10,7 @@ export function getStatusStyle(status: AgentStatus | TaskStatus): {
   switch (status) {
     case 'Working':
       return {
-        badgeText: 'Working',
+        badgeText: 'Bekerja',
         textClass: 'text-blue-400',
         borderClass: 'border-blue-500/40',
         bgClass: 'bg-blue-950/60',
@@ -18,7 +18,7 @@ export function getStatusStyle(status: AgentStatus | TaskStatus): {
       };
     case 'Thinking':
       return {
-        badgeText: 'Thinking',
+        badgeText: 'Berpikir',
         textClass: 'text-amber-400',
         borderClass: 'border-amber-500/40',
         bgClass: 'bg-amber-950/60',
@@ -26,7 +26,7 @@ export function getStatusStyle(status: AgentStatus | TaskStatus): {
       };
     case 'Completed':
       return {
-        badgeText: 'Completed',
+        badgeText: 'Selesai',
         textClass: 'text-emerald-400',
         borderClass: 'border-emerald-500/40',
         bgClass: 'bg-emerald-950/60',
@@ -42,7 +42,7 @@ export function getStatusStyle(status: AgentStatus | TaskStatus): {
       };
     case 'Queued':
       return {
-        badgeText: 'Queued',
+        badgeText: 'Antre',
         textClass: 'text-slate-300',
         borderClass: 'border-slate-700',
         bgClass: 'bg-slate-800/80',
@@ -51,7 +51,7 @@ export function getStatusStyle(status: AgentStatus | TaskStatus): {
     case 'Idle':
     default:
       return {
-        badgeText: 'Idle',
+        badgeText: 'Siaga',
         textClass: 'text-slate-400',
         borderClass: 'border-slate-700',
         bgClass: 'bg-slate-800/70',

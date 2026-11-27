@@ -43,7 +43,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
-      setValidationError('Please enter a task title.');
+      setValidationError('Silakan masukkan judul tugas terlebih dahulu.');
       return;
     }
     onSubmit({
@@ -73,16 +73,16 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               id="assign-task-modal-title"
               className="font-display text-lg font-bold text-slate-50"
             >
-              Assign Task to AI Employee
+              Beri Tugas ke Karyawan
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              Dispatched by Yendra AI Manager to the selected workstation queue.
+              Dikirim oleh Yendra Owner ke antrean meja kerja terpilih.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close Assign Task Dialog"
+            aria-label="Tutup Dialog Tugas"
             className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
           >
             <X className="h-4 w-4" />
@@ -95,7 +95,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               htmlFor="modal-task-assignee"
               className="block text-xs font-medium text-slate-300"
             >
-              AI Employee
+              Karyawan
             </label>
             <select
               id="modal-task-assignee"
@@ -105,7 +105,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
             >
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.id}>
-                  {emp.name} — {emp.role} ({emp.status})
+                  {emp.name} — {emp.role}
                 </option>
               ))}
             </select>
@@ -116,7 +116,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               htmlFor="modal-task-title"
               className="block text-xs font-medium text-slate-300"
             >
-              Task Title
+              Judul Tugas
             </label>
             <input
               id="modal-task-title"
@@ -126,7 +126,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
                 setTitle(e.target.value);
                 if (validationError) setValidationError('');
               }}
-              placeholder="e.g., Draft Q4 Product Explainer Script"
+              placeholder="Contoh: Susun Naskah Video Motivasi Pagi"
               className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
             />
             {validationError && (
@@ -139,14 +139,14 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               htmlFor="modal-task-desc"
               className="block text-xs font-medium text-slate-300"
             >
-              Instructions / Brief
+              Instruksi / Brief
             </label>
             <textarea
               id="modal-task-desc"
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional acceptance criteria or asset context..."
+              placeholder="Catatan kriteria atau detail tugas (opsional)..."
               className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
             />
           </div>
@@ -157,7 +157,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
                 htmlFor="modal-task-priority"
                 className="block text-xs font-medium text-slate-300"
               >
-                Priority
+                Prioritas
               </label>
               <select
                 id="modal-task-priority"
@@ -165,10 +165,10 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
                 onChange={(e) => setPriority(e.target.value as TaskPriority)}
                 className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
               >
-                <option value="Low">Low</option>
+                <option value="Low">Rendah</option>
                 <option value="Normal">Normal</option>
-                <option value="High">High</option>
-                <option value="Urgent">Urgent</option>
+                <option value="High">Tinggi</option>
+                <option value="Urgent">Mendesak</option>
               </select>
             </div>
             <div>
@@ -176,7 +176,7 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
                 htmlFor="modal-task-duration"
                 className="block text-xs font-medium text-slate-300"
               >
-                Est. Cycle (seconds)
+                Estimasi Siklus (detik)
               </label>
               <input
                 id="modal-task-duration"
@@ -198,13 +198,13 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               onClick={onClose}
               className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800"
             >
-              Cancel
+              Batal
             </button>
             <button
               type="submit"
               className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500"
             >
-              Dispatch Task
+              Kirim Tugas
             </button>
           </div>
         </form>

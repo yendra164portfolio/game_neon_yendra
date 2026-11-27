@@ -8,6 +8,62 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { WebSocketServer, WebSocket } from 'ws';
 import { StudioDatabase, isValidResourceId } from './server/studioDb.ts';
 import { StudioCoordinator } from './server/studioPipeline.ts';
+import type {
+  TikTokPrivacyLevel,
+  TikTokPublishMode,
+} from './src/studio/types.ts';
+
+function renderTikTokCallbackHtml(payload: {
+  ok: boolean;
+  message: string;
+  username?: string | null;
+}): string {
+  const postPayload = JSON.stringify(
+    payload.ok
+      ? {
+          type: 'TIKTOK_OAUTH_SUCCESS',
+          username: payload.username ?? null,
+        }
+      : {
+          type: 'TIKTOK_OAUTH_ERROR',
+          error: payload.message,
+        },
+  ).replace(/</g, '\\u003c');
+
+  const safeStatusTitle = payload.ok
+    ? 'Akun TikTok Berhasil Terhubung'
+    : 'Koneksi TikTok Gagal';
+  const safeBodyJson = JSON.stringify(payload.message).replace(/</g, '\\u003c');
+
+  return `<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <title>Yendra Motion · TikTok OAuth</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #020617; color: #f8fafc; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; padding: 24px; }
+    .card { max-width: 420px; width: 100%; border: 1px solid #1e293b; background: #0f172a; border-radius: 14px; padding: 24px; text-align: center; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    p { font-size: 13px; color: #94a3b8; margin: 0 0 16px; line-height: 1.5; }
+    button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${safeStatusTitle}</h1>
+    <p id="status-msg"></p>
+    <button type="button" onclick="window.close()">Tutup Jendela</button>
+  </div>
+  <script>
+    document.getElementById('status-msg').textContent = ${safeBodyJson};
+    if (window.opener) {
+      window.opener.postMessage(${postPayload}, '*');
+    }
+    setTimeout(function() { window.close(); }, 1200);
+  </script>
+</body>
+</html>`;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -193,6 +249,12 @@ async function startServer() {
       res.status(404).json({ error: 'MP4 file missing from persistent storage.' });
       return;
     }
+    try {
+      fs.accessSync(filePath, fs.constants.R_OK);
+    } catch {
+      res.status(500).json({ error: 'MP4 file is not readable on storage.' });
+      return;
+    }
 
     const stat = fs.statSync(filePath);
     const fileSize = stat.size;
@@ -248,9 +310,41 @@ async function startServer() {
       res.status(404).json({ error: 'MP4 file missing from persistent storage.' });
       return;
     }
+    try {
+      fs.accessSync(filePath, fs.constants.R_OK);
+    } catch {
+      res.status(500).json({ error: 'MP4 file is not readable on storage.' });
+      return;
+    }
 
     const safeSlug = video.topicSlug.replace(/[^a-zA-Z0-9_-]/g, '-');
     res.download(filePath, `${safeSlug}-1080x1920.mp4`);
+  });
+
+  app.get('/api/studio/videos/:id/thumbnail', (req, res) => {
+    const id = req.params.id;
+    if (!isValidResourceId(id)) {
+      res.status(400).json({ error: 'ID video tidak valid.' });
+      return;
+    }
+    const video = studioDb.getVideoById(id);
+    if (!video || !video.thumbnailFileName) {
+      res.status(404).json({ error: 'Thumbnail tidak tersedia.' });
+      return;
+    }
+    let thumbPath: string;
+    try {
+      thumbPath = studioDb.resolveConfinedPath('thumbnails', video.thumbnailFileName);
+    } catch {
+      res.status(400).json({ error: 'Path thumbnail tidak valid.' });
+      return;
+    }
+    if (!fs.existsSync(thumbPath)) {
+      res.status(404).json({ error: 'File thumbnail tidak ditemukan.' });
+      return;
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    fs.createReadStream(thumbPath).pipe(res);
   });
 
   app.get('/api/studio/videos/:id/text/:kind', (req, res) => {
@@ -312,7 +406,7 @@ async function startServer() {
       res.status(404).json({ error: 'Video not found.' });
       return;
     }
-    const result = studioCoordinator.retryOrRunJob(video.jobId);
+    const result = studioCoordinator.retryOrRunJob(video.jobId, { forceRerender: true });
     if (!result.started) {
       res.status(result.job ? 409 : 404).json({
         started: false,
@@ -326,6 +420,41 @@ async function startServer() {
       job: result.job,
       dashboard: studioCoordinator.getDashboardPayload(),
     });
+  });
+
+  app.post('/api/studio/recover', async (_req, res) => {
+    try {
+      const recovery = await studioCoordinator.recoverOrphanedVideos();
+      res.json({
+        recovery,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Recovery scan failed.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/studio/videos/:id/ai-qc', async (req, res) => {
+    const id = req.params.id;
+    if (!isValidResourceId(id)) {
+      res.status(400).json({ error: 'Invalid video ID.' });
+      return;
+    }
+    try {
+      const result = await studioCoordinator.runAiQcUpgradeForVideo(id);
+      res.json({
+        result,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'AI QC verification failed.';
+      const status = /not found/i.test(message) ? 404 : 502;
+      res.status(status).json({
+        error: message,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    }
   });
 
   app.delete('/api/studio/videos/:id', (req, res) => {
@@ -348,6 +477,203 @@ async function startServer() {
       deleted: true,
       dashboard: studioCoordinator.getDashboardPayload(),
     });
+  });
+
+  // ============================================================
+  // TIKTOK OAUTH 2.0 & CONTENT POSTING API ROUTES
+  // ============================================================
+  app.get('/api/tiktok/status', (_req, res) => {
+    res.json(studioCoordinator.tiktok.getPublicStatus());
+  });
+
+  app.get('/api/tiktok/auth-url', (req, res) => {
+    const scopeMode = req.query.scopeMode === 'draft' ? 'draft' : 'full';
+    try {
+      const authData = studioCoordinator.tiktok.buildAuthorizationUrl(scopeMode);
+      res.json({
+        configured: true,
+        ...authData,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Konfigurasi TikTok belum siap.';
+      res.status(200).json({
+        configured: false,
+        error: message,
+        status: studioCoordinator.tiktok.getPublicStatus(),
+      });
+    }
+  });
+
+  app.get(['/api/tiktok/callback', '/api/tiktok/callback/'], async (req, res) => {
+    const oauthError =
+      typeof req.query.error === 'string' ? req.query.error.trim() : '';
+    const oauthErrorDesc =
+      typeof req.query.error_description === 'string'
+        ? req.query.error_description.trim()
+        : '';
+    if (oauthError) {
+      res.status(400).send(
+        renderTikTokCallbackHtml({
+          ok: false,
+          message: oauthErrorDesc || `Otorisasi dibatalkan (${oauthError}).`,
+        }),
+      );
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
+    const state = typeof req.query.state === 'string' ? req.query.state.trim() : '';
+
+    try {
+      const account = await studioCoordinator.tiktok.handleOAuthCallback(code, state);
+      studioCoordinator.emitStudioUpdated();
+      res.status(200).send(
+        renderTikTokCallbackHtml({
+          ok: true,
+          username: account.username ?? account.displayName ?? account.openId,
+          message: account.username
+            ? `Terhubung sebagai @${account.username}. Jendela ini akan tertutup otomatis.`
+            : 'Akun TikTok terhubung. Jendela ini akan tertutup otomatis.',
+        }),
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Autentikasi TikTok gagal.';
+      res.status(400).send(
+        renderTikTokCallbackHtml({
+          ok: false,
+          message,
+        }),
+      );
+    }
+  });
+
+  app.post('/api/tiktok/settings', (req, res) => {
+    const validModes = new Set<TikTokPublishMode>(['draft', 'direct']);
+    const validPrivacies = new Set<TikTokPrivacyLevel>([
+      'SELF_ONLY',
+      'MUTUAL_FOLLOW_FRIENDS',
+      'FOLLOWER_OF_CREATOR',
+      'PUBLIC_TO_EVERYONE',
+    ]);
+
+    const patch: {
+      autoUploadEnabled?: boolean;
+      defaultMode?: TikTokPublishMode;
+      defaultPrivacy?: TikTokPrivacyLevel;
+    } = {};
+
+    if (typeof req.body?.autoUploadEnabled === 'boolean') {
+      patch.autoUploadEnabled = req.body.autoUploadEnabled;
+    }
+    if (typeof req.body?.defaultMode === 'string') {
+      if (!validModes.has(req.body.defaultMode as TikTokPublishMode)) {
+        res.status(400).json({ error: 'Mode upload TikTok tidak valid (draft | direct).' });
+        return;
+      }
+      patch.defaultMode = req.body.defaultMode as TikTokPublishMode;
+    }
+    if (typeof req.body?.defaultPrivacy === 'string') {
+      if (!validPrivacies.has(req.body.defaultPrivacy as TikTokPrivacyLevel)) {
+        res.status(400).json({ error: 'Privasi TikTok tidak valid.' });
+        return;
+      }
+      patch.defaultPrivacy = req.body.defaultPrivacy as TikTokPrivacyLevel;
+    }
+
+    studioDb.setTikTokSettings(patch);
+    studioCoordinator.emitStudioUpdated();
+    res.json({
+      tiktok: studioCoordinator.tiktok.getPublicStatus(),
+      dashboard: studioCoordinator.getDashboardPayload(),
+    });
+  });
+
+  app.post('/api/tiktok/disconnect', (_req, res) => {
+    studioDb.clearTikTokConnection();
+    studioDb.setTikTokSettings({ autoUploadEnabled: false });
+    studioDb.appendLog('publisher', 'info', 'Koneksi akun TikTok diputuskan oleh Owner.');
+    studioCoordinator.emitStudioUpdated();
+    res.json({
+      tiktok: studioCoordinator.tiktok.getPublicStatus(),
+      dashboard: studioCoordinator.getDashboardPayload(),
+    });
+  });
+
+  app.post('/api/tiktok/cleanup-storage', async (_req, res) => {
+    try {
+      const cleanup = await studioCoordinator.tiktok.cleanupAllEligible({
+        minAgeAfterUploadMs: 60_000,
+      });
+      studioCoordinator.emitStudioUpdated();
+      res.json({
+        cleanup,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal membersihkan storage video yang sudah terupload.';
+      res.status(500).json({
+        error: message,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    }
+  });
+
+  app.post('/api/studio/videos/:id/tiktok-upload', async (req, res) => {
+    const id = req.params.id;
+    if (!isValidResourceId(id)) {
+      res.status(400).json({ error: 'Invalid video ID.' });
+      return;
+    }
+
+    const validModes = new Set<TikTokPublishMode>(['draft', 'direct']);
+    const validPrivacies = new Set<TikTokPrivacyLevel>([
+      'SELF_ONLY',
+      'MUTUAL_FOLLOW_FRIENDS',
+      'FOLLOWER_OF_CREATOR',
+      'PUBLIC_TO_EVERYONE',
+    ]);
+
+    const mode =
+      typeof req.body?.mode === 'string' &&
+      validModes.has(req.body.mode as TikTokPublishMode)
+        ? (req.body.mode as TikTokPublishMode)
+        : undefined;
+    const privacyLevel =
+      typeof req.body?.privacyLevel === 'string' &&
+      validPrivacies.has(req.body.privacyLevel as TikTokPrivacyLevel)
+        ? (req.body.privacyLevel as TikTokPrivacyLevel)
+        : undefined;
+
+    try {
+      const result = await studioCoordinator.uploadVideoToTikTok(id, {
+        mode,
+        privacyLevel,
+        source: 'manual',
+      });
+      res.json({
+        upload: result,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Gagal mengunggah video ke TikTok.';
+      const statusCode = /tidak ditemukan/i.test(message)
+        ? 404
+        : /belum terhubung|belum diatur|Format file tidak valid|Resolusi video|Durasi video|Ukuran file video|Video belum lulus|Rasio aspek/i.test(
+              message,
+            )
+          ? 400
+          : 502;
+      res.status(statusCode).json({
+        error: message,
+        dashboard: studioCoordinator.getDashboardPayload(),
+      });
+    }
   });
 
   // Laravel Reverb-compatible event ingestion endpoint for real AI workers

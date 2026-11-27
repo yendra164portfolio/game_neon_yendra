@@ -40,7 +40,7 @@ export function createOakFloorTexture(maxAnisotropy: number): {
   bumpCanvas.height = size;
   const bctx = bumpCanvas.getContext('2d')!;
 
-  ctx.fillStyle = '#c8a67d';
+  ctx.fillStyle = '#d4b48c';
   ctx.fillRect(0, 0, size, size);
   bctx.fillStyle = '#9a9a9a';
   bctx.fillRect(0, 0, size, size);
@@ -54,10 +54,10 @@ export function createOakFloorTexture(maxAnisotropy: number): {
     for (let col = -1; col < 3; col++) {
       const x = col * plankW + offset;
       const y = row * plankH;
-      const shade = ((row * 7 + col * 13) % 5) * 6 - 12;
-      const r = Math.min(255, Math.max(0, 198 + shade));
-      const g = Math.min(255, Math.max(0, 162 + shade));
-      const b = Math.min(255, Math.max(0, 120 + shade));
+      const shade = ((row * 7 + col * 13) % 5) * 5 - 10;
+      const r = Math.min(255, Math.max(0, 212 + shade));
+      const g = Math.min(255, Math.max(0, 178 + shade));
+      const b = Math.min(255, Math.max(0, 134 + shade));
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       ctx.fillRect(x + 1, y + 1, plankW - 2, plankH - 2);
 
@@ -176,52 +176,186 @@ export function createContactShadowTexture(): THREE.CanvasTexture {
 }
 
 export function createWhiteboardTexture(): THREE.CanvasTexture {
-  const w = 512;
-  const h = 256;
+  const w = 1024;
+  const h = 384;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#f8fafc';
+  // Classic deep slate-green classroom chalkboard
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, '#17382e');
+  grad.addColorStop(0.5, '#1b4135');
+  grad.addColorStop(1, '#14332a');
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
-  // Subtle dot grid
-  ctx.fillStyle = '#cbd5e1';
-  for (let x = 24; x < w; x += 24) {
-    for (let y = 24; y < h; y += 24) {
-      ctx.fillRect(x, y, 2, 2);
-    }
+  // Subtle chalk smudge texture
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.025)';
+  for (let i = 0; i < 42; i++) {
+    const sx = ((i * 197) % (w - 80)) + 20;
+    const sy = ((i * 89) % (h - 40)) + 20;
+    ctx.fillRect(sx, sy, 68, 18);
   }
 
-  // Title
-  ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 18px sans-serif';
-  ctx.fillText('YENDRA AI · VIDEO PIPELINE', 24, 38);
+  // Faint ruled chalk lines
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+  ctx.lineWidth = 1;
+  for (let y = 78; y < h - 24; y += 36) {
+    ctx.beginPath();
+    ctx.moveTo(28, y);
+    ctx.lineTo(w - 28, y);
+    ctx.stroke();
+  }
 
-  // Flow boxes
-  const steps = ['1. Research', '2. Script', '3. Assets', '4. Cut', '5. Subs', '6. Audio', '7. Render', '8. QA'];
-  const colors = ['#0f766e', '#b45309', '#be123c', '#4338ca', '#b45309', '#4338ca', '#4338ca', '#1d4ed8'];
+  // Chalk Header
+  ctx.fillStyle = '#fef08a';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText('KELAS PRODUKSI YENDRA · PAPAN MATERI HARIAN', 36, 52);
+
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = '18px sans-serif';
+  ctx.fillText('Guru: Yendra Owner   |   6 Meja Siswa   |   Fokus: Riset, Naskah, Desain & Video', 36, 86);
+
+  // Chalk underline
+  ctx.strokeStyle = 'rgba(254, 240, 138, 0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(36, 98);
+  ctx.lineTo(w - 36, 98);
+  ctx.stroke();
+
+  // Structured 4x2 lesson / production flow boxes drawn in clean chalk style
+  const steps = ['1. Riset', '2. Naskah', '3. Desain', '4. Editing', '5. Subtitle', '6. Audio', '7. Render', '8. Evaluasi'];
+  const colors = ['#5eead4', '#fcd34d', '#fda4af', '#a5b4fc', '#fcd34d', '#a5b4fc', '#93c5fd', '#86efac'];
   steps.forEach((label, idx) => {
     const row = Math.floor(idx / 4);
     const col = idx % 4;
-    const bx = 26 + col * 118;
-    const by = 64 + row * 82;
-    ctx.fillStyle = colors[idx];
-    ctx.fillRect(bx, by, 102, 46);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText(label, bx + 10, by + 28);
+    const bx = 42 + col * 242;
+    const by = 132 + row * 108;
+
+    ctx.strokeStyle = colors[idx];
+    ctx.lineWidth = 3;
+    ctx.strokeRect(bx, by, 206, 68);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.fillRect(bx, by, 206, 68);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(label, bx + 20, by + 42);
 
     if (col < 3) {
-      ctx.strokeStyle = '#64748b';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(248, 250, 252, 0.6)';
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(bx + 104, by + 23);
-      ctx.lineTo(bx + 116, by + 23);
+      ctx.moveTo(bx + 210, by + 34);
+      ctx.lineTo(bx + 236, by + 34);
       ctx.stroke();
     }
   });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createBulletinBoardTexture(): THREE.CanvasTexture {
+  const w = 512;
+  const h = 288;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  // Warm cork pinboard base
+  ctx.fillStyle = '#b6895b';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(84, 52, 24, 0.14)';
+  for (let i = 0; i < 160; i++) {
+    ctx.fillRect((i * 47) % w, (i * 73) % h, 4, 3);
+  }
+
+  // Pinned classroom cards
+  const cards = [
+    { x: 24, y: 24, cw: 210, ch: 108, bg: '#fef9c3', pin: '#dc2626', title: 'JADWAL KELAS', line1: '08:00 Riset & Topik', line2: '10:00 Naskah & Desain' },
+    { x: 266, y: 24, cw: 222, ch: 108, bg: '#dbeafe', pin: '#2563eb', title: 'TATA TERTIB', line1: '1. Meja Rapi & Bersih', line2: '2. Fokus Tugas Harian' },
+    { x: 24, y: 156, cw: 210, ch: 108, bg: '#dcfce7', pin: '#16a34a', title: 'KELOMPOK BELAJAR', line1: 'Baris 1: Asep · Abdul · Caca', line2: 'Baris 2: Rahman · Eko · Riko' },
+    { x: 266, y: 156, cw: 222, ch: 108, bg: '#ffe4e6', pin: '#e11d48', title: 'TARGET MINGGU INI', line1: 'Video Motivasi 9:16', line2: 'Siap Tayang & QC Lulus' },
+  ];
+
+  cards.forEach((c) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.fillRect(c.x + 3, c.y + 4, c.cw, c.ch);
+    ctx.fillStyle = c.bg;
+    ctx.fillRect(c.x, c.y, c.cw, c.ch);
+    ctx.fillStyle = c.pin;
+    ctx.beginPath();
+    ctx.arc(c.x + c.cw / 2, c.y + 12, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(c.title, c.x + 14, c.y + 38);
+    ctx.fillStyle = '#334155';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(c.line1, c.x + 14, c.y + 64);
+    ctx.fillText(c.line2, c.x + 14, c.y + 86);
+  });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createClockFaceTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  ctx.arc(128, 128, 124, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    const x1 = 128 + Math.cos(ang) * 96;
+    const y1 = 128 + Math.sin(ang) * 96;
+    const x2 = 128 + Math.cos(ang) * 112;
+    const y2 = 128 + Math.sin(ang) * 112;
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = i % 3 === 0 ? 6 : 3;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  // Hour hand (~10:10)
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(128, 128);
+  ctx.lineTo(86, 98);
+  ctx.stroke();
+
+  // Minute hand
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(128, 128);
+  ctx.lineTo(182, 82);
+  ctx.stroke();
+
+  // Center pin
+  ctx.fillStyle = '#dc2626';
+  ctx.beginPath();
+  ctx.arc(128, 128, 7, 0, Math.PI * 2);
+  ctx.fill();
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

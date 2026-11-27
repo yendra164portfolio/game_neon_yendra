@@ -40,35 +40,35 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="border-b border-slate-800 pb-4">
           <h1 className="font-display text-2xl font-bold text-slate-50">
-            Employee Performance Overview
+            Ringkasan Kinerja Karyawan
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Throughput, completion reliability, and active utilization across all 6 AI office specialists.
+            Produktivitas, ketuntasan tugas, dan waktu aktif seluruh 7 anggota tim kantor.
           </p>
         </div>
 
         {/* Summary KPI Strip */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <span className="text-xs text-slate-400">Total AI Employees</span>
+            <span className="text-xs text-slate-400">Total Karyawan</span>
             <div className="font-mono-num mt-1 text-2xl font-bold text-slate-50">
               {metrics.totalEmployees}
             </div>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <span className="text-xs text-slate-400">Cumulative Tasks Done</span>
+            <span className="text-xs text-slate-400">Total Tugas Selesai</span>
             <div className="font-mono-num mt-1 text-2xl font-bold text-emerald-400">
               {totalCompletedAll}
             </div>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <span className="text-xs text-slate-400">Cumulative Errors</span>
+            <span className="text-xs text-slate-400">Total Kendala</span>
             <div className="font-mono-num mt-1 text-2xl font-bold text-red-400">
               {totalFailedAll}
             </div>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <span className="text-xs text-slate-400">Active / Queued Now</span>
+            <span className="text-xs text-slate-400">Aktif / Antre Saat Ini</span>
             <div className="font-mono-num mt-1 text-2xl font-bold text-blue-400">
               {metrics.activeTasks} / {metrics.queuedTasks}
             </div>
@@ -100,16 +100,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       </p>
                     </div>
                     <span className={`font-mono-num text-xs font-semibold ${st.textClass}`}>
-                      {emp.status}
+                      {st.badgeText}
                     </span>
                   </div>
 
                   {/* Throughput Bar */}
                   <div className="mt-4">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-400">Completed Output</span>
+                      <span className="text-slate-400">Hasil Selesai</span>
                       <span className="font-mono-num font-semibold text-slate-200">
-                        {emp.tasksCompleted} tasks
+                        {emp.tasksCompleted} tugas
                       </span>
                     </div>
                     <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-800">
@@ -123,19 +123,19 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   {/* Metrics Grid */}
                   <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-800 pt-3 text-xs">
                     <div>
-                      <span className="block text-slate-500">Efficiency</span>
+                      <span className="block text-slate-500">Efisiensi</span>
                       <span className="font-mono-num font-semibold text-emerald-400">
                         {emp.efficiencyScore}%
                       </span>
                     </div>
                     <div>
-                      <span className="block text-slate-500">Queued</span>
+                      <span className="block text-slate-500">Antre</span>
                       <span className="font-mono-num font-semibold text-slate-200">
                         {queuedCount}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-slate-500">Active Time</span>
+                      <span className="block text-slate-500">Waktu Aktif</span>
                       <span className="font-mono-num font-semibold text-slate-200">
                         {formatDurationSeconds(emp.totalActiveSeconds)}
                       </span>
@@ -145,14 +145,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
                 <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-3 text-xs">
                   <span className="font-mono-num text-slate-500">
-                    Updated {formatClockTime(emp.statusUpdatedAt)}
+                    Diperbarui {formatClockTime(emp.statusUpdatedAt)}
                   </span>
                   <button
                     type="button"
                     onClick={() => onInspectEmployee(emp.id)}
                     className="font-semibold text-blue-400 hover:text-blue-300"
                   >
-                    Inspect in 3D
+                    Pantau di 3D
                   </button>
                 </div>
               </div>

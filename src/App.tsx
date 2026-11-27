@@ -4,34 +4,70 @@ import { AssignTaskModal } from './components/AssignTaskModal';
 import { ContentStudioView } from './components/ContentStudioView';
 import { IntegrationsView } from './components/IntegrationsView';
 import { OfficeViewport } from './components/OfficeViewport';
-import { TaskManagerView } from './components/TaskManagerView';
 import { TopNav, type WorkspaceTab } from './components/TopNav';
-import { VideoPipelineView } from './components/VideoPipelineView';
 import {
   applyExternalAgentEvent,
-  approveVideoRun,
+  applyOfficeCustomizations,
   assignTaskToAgent,
-  cancelTask,
   computeDashboardMetrics,
   createInitialOfficeState,
-  requestVideoRevision,
+  moveEmployeeSeat,
+  renameEmployee,
   retryFailedTask,
-  startVideoProductionRun,
+  rotateEmployeeSeat,
+  sendManagerToInspect,
+  setManagerPatrolEnabled,
   stepOfficeSimulation,
+  swapEmployeeSeats,
   triggerAgentError,
+  type OfficeCustomizationRecord,
 } from './office/officeEngine';
 import type {
   AgentId,
+  EmployeeProfile,
   ExternalAgentEvent,
   OfficeState,
   TaskPriority,
-  VideoFormat,
 } from './office/types';
 import type { StudioDashboardPayload } from './studio/types';
 
+const CUSTOMIZATION_STORAGE_KEY = 'yendra_office_customizations_v1';
+
+function loadOfficeCustomizations(): OfficeCustomizationRecord | null {
+  try {
+    const raw = window.localStorage.getItem(CUSTOMIZATION_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as OfficeCustomizationRecord;
+  } catch {
+    return null;
+  }
+}
+
+function saveOfficeCustomizations(employees: EmployeeProfile[]): void {
+  try {
+    const record: OfficeCustomizationRecord = {
+      names: {},
+      seats: {},
+    };
+    for (const emp of employees) {
+      record.names![emp.id] = emp.name;
+      record.seats![emp.id] = {
+        deskPosition: emp.deskPosition,
+        deskRotationY: emp.deskRotationY,
+      };
+    }
+    window.localStorage.setItem(CUSTOMIZATION_STORAGE_KEY, JSON.stringify(record));
+  } catch {
+    // Ignore storage quota or private-mode errors
+  }
+}
+
 export function App() {
   const [officeState, setOfficeState] = useState<OfficeState>(() =>
-    createInitialOfficeState(Date.now()),
+    applyOfficeCustomizations(
+      createInitialOfficeState(Date.now()),
+      loadOfficeCustomizations(),
+    ),
   );
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('office');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<AgentId | null>(null);
@@ -149,7 +185,7 @@ export function App() {
       triggerAgentError(
         prev,
         agentId,
-        'Demo Error: Simulated worker interruption — click Retry to recover.',
+        'Simulasi Error: Gangguan tugas sementara — klik Ulangi Tugas untuk memulihkan.',
         Date.now(),
       ),
     );
@@ -159,35 +195,54 @@ export function App() {
     setOfficeState((prev) => retryFailedTask(prev, taskId, Date.now()));
   };
 
-  const handleCancelTask = (taskId: string) => {
-    setOfficeState((prev) => cancelTask(prev, taskId, Date.now()));
-  };
-
   const handleInspectEmployee = (agentId: AgentId) => {
     setSelectedEmployeeId(agentId);
     setActiveTab('office');
   };
 
-  const handleStartVideoRun = (payload: {
-    topic: string;
-    format: VideoFormat;
-    geminiAssisted: boolean;
-    customArtifacts?: {
-      researchNotes?: string;
-      scriptText?: string;
-      subtitlesSrt?: string;
-      musicCue?: string;
-    };
-  }) => {
-    setOfficeState((prev) => startVideoProductionRun(prev, payload, Date.now()));
+  const handleRenameEmployee = (agentId: AgentId, newName: string) => {
+    setOfficeState((prev) => {
+      const next = renameEmployee(prev, agentId, newName, Date.now());
+      saveOfficeCustomizations(next.employees);
+      return next;
+    });
   };
 
-  const handleApproveVideoRun = (runId: string, notes: string) => {
-    setOfficeState((prev) => approveVideoRun(prev, runId, notes, Date.now()));
+  const handleMoveEmployeeSeat = (
+    agentId: AgentId,
+    position: [number, number, number],
+  ) => {
+    setOfficeState((prev) => {
+      const next = moveEmployeeSeat(prev, agentId, position, undefined, Date.now());
+      saveOfficeCustomizations(next.employees);
+      return next;
+    });
   };
 
-  const handleRequestRevision = (runId: string, notes: string) => {
-    setOfficeState((prev) => requestVideoRevision(prev, runId, notes, Date.now()));
+  const handleRotateEmployeeSeat = (agentId: AgentId) => {
+    setOfficeState((prev) => {
+      const next = rotateEmployeeSeat(prev, agentId, Math.PI / 2, Date.now());
+      saveOfficeCustomizations(next.employees);
+      return next;
+    });
+  };
+
+  const handleSwapEmployeeSeats = (agentA: AgentId, agentB: AgentId) => {
+    setOfficeState((prev) => {
+      const next = swapEmployeeSeats(prev, agentA, agentB, Date.now());
+      saveOfficeCustomizations(next.employees);
+      return next;
+    });
+  };
+
+  const handleToggleManagerPatrol = () => {
+    setOfficeState((prev) =>
+      setManagerPatrolEnabled(prev, !prev.managerPatrol.enabled, Date.now()),
+    );
+  };
+
+  const handleSendManagerToInspect = (targetAgentId: AgentId) => {
+    setOfficeState((prev) => sendManagerToInspect(prev, targetAgentId, Date.now()));
   };
 
   return (
@@ -199,7 +254,6 @@ export function App() {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onOpenAssignModal={() => handleOpenAssignModal()}
-        awaitingVideoReviewCount={metrics.awaitingVideoReview}
       />
 
       <main className="flex flex-1 flex-col overflow-hidden">
@@ -209,6 +263,7 @@ export function App() {
             tasks={officeState.tasks}
             activityLog={officeState.activityLog}
             metrics={metrics}
+            managerPatrol={officeState.managerPatrol}
             selectedEmployeeId={selectedEmployeeId}
             simulationRunning={officeState.simulationRunning}
             simulationSpeed={officeState.simulationSpeed}
@@ -227,9 +282,20 @@ export function App() {
             onTriggerError={handleTriggerError}
             onRetryTask={handleRetryTask}
             onResetDemo={() => {
+              try {
+                window.localStorage.removeItem(CUSTOMIZATION_STORAGE_KEY);
+              } catch {
+                // Ignore storage errors
+              }
               setSelectedEmployeeId(null);
               setOfficeState(createInitialOfficeState(Date.now()));
             }}
+            onRenameEmployee={handleRenameEmployee}
+            onMoveEmployeeSeat={handleMoveEmployeeSeat}
+            onRotateEmployeeSeat={handleRotateEmployeeSeat}
+            onSwapEmployeeSeats={handleSwapEmployeeSeats}
+            onToggleManagerPatrol={handleToggleManagerPatrol}
+            onSendManagerToInspect={handleSendManagerToInspect}
           />
         )}
 
@@ -239,32 +305,6 @@ export function App() {
             loading={studioLoading}
             onRefresh={refreshStudioDashboard}
             onJumpToOffice={() => setActiveTab('office')}
-          />
-        )}
-
-        {activeTab === 'tasks' && (
-          <TaskManagerView
-            employees={officeState.employees}
-            tasks={officeState.tasks}
-            activityLog={officeState.activityLog}
-            onAssignTask={handleAssignTask}
-            onRetryTask={handleRetryTask}
-            onCancelTask={handleCancelTask}
-            onInspectEmployee={handleInspectEmployee}
-          />
-        )}
-
-        {activeTab === 'video' && (
-          <VideoPipelineView
-            employees={officeState.employees}
-            videoRuns={officeState.videoRuns}
-            activeVideoRunId={officeState.activeVideoRunId}
-            onSelectRun={(runId) =>
-              setOfficeState((prev) => ({ ...prev, activeVideoRunId: runId }))
-            }
-            onStartRun={handleStartVideoRun}
-            onApproveRun={handleApproveVideoRun}
-            onRequestRevision={handleRequestRevision}
           />
         )}
 
@@ -282,6 +322,8 @@ export function App() {
             employees={officeState.employees}
             wsConnected={wsConnected}
             onJumpToOffice={() => setActiveTab('office')}
+            dashboard={studioDashboard}
+            onRefresh={refreshStudioDashboard}
           />
         )}
       </main>

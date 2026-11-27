@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock,
   Download,
   FileText,
   Film,
+  Link2,
   Play,
   Plus,
   RefreshCw,
@@ -13,14 +13,16 @@ import {
   ShieldCheck,
   Subtitles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
-import { ENGINEERING_TOPIC_CATALOG } from '../studio/topicCatalog';
+import { MOTIVATION_TOPIC_CATALOG } from '../studio/topicCatalog';
+import { startTikTokOAuthPopup } from '../studio/tiktokClient';
 import type {
   ProducedVideoRecord,
-  ProductionJobRecord,
   StudioDashboardPayload,
-  StudioJobStatus,
+  TikTokPrivacyLevel,
+  TikTokPublishMode,
 } from '../studio/types';
 
 interface ContentStudioViewProps {
@@ -30,62 +32,14 @@ interface ContentStudioViewProps {
   onJumpToOffice: () => void;
 }
 
-const STAGE_META: Array<{ index: number; label: string; agentName: string }> = [
-  { index: 1, label: 'Research', agentName: 'AI Researcher' },
-  { index: 2, label: 'Script (ID)', agentName: 'AI Scriptwriter' },
-  { index: 3, label: 'Diagrams', agentName: 'AI Visual Designer' },
-  { index: 4, label: 'Render MP4', agentName: 'AI Video Editor' },
-  { index: 5, label: 'Quality Control', agentName: 'AI Quality Control' },
-];
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function formatStatusLabel(status: StudioJobStatus): string {
-  switch (status) {
-    case 'queued':
-      return 'Queued';
-    case 'researching':
-      return '1 · AI Researcher';
-    case 'scripting':
-      return '2 · AI Scriptwriter';
-    case 'designing':
-      return '3 · AI Visual Designer';
-    case 'editing':
-      return '4 · AI Video Editor';
-    case 'qc':
-      return '5 · AI Quality Control';
-    case 'waiting_review':
-      return 'Waiting Review';
-    case 'completed':
-      return 'Completed (MP4 Verified)';
-    case 'failed':
-      return 'Failed';
-  }
-}
-
-function statusBadgeStyle(status: StudioJobStatus): string {
-  switch (status) {
-    case 'completed':
-      return 'border-emerald-700/60 bg-emerald-950/60 text-emerald-300';
-    case 'failed':
-      return 'border-rose-700/60 bg-rose-950/60 text-rose-300';
-    case 'queued':
-      return 'border-slate-700 bg-slate-900 text-slate-300';
-    case 'qc':
-    case 'waiting_review':
-      return 'border-amber-700/60 bg-amber-950/60 text-amber-300';
-    default:
-      return 'border-blue-700/60 bg-blue-950/60 text-blue-300';
-  }
-}
-
 export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
   dashboard,
-  loading,
   onRefresh,
   onJumpToOffice,
 }) => {
@@ -97,7 +51,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedCatalogSlug, setSelectedCatalogSlug] = useState<string>('custom');
   const [customTitle, setCustomTitle] = useState('');
-  const [customCategory, setCustomCategory] = useState('Mechanical & Everyday Tech');
+  const [customCategory, setCustomCategory] = useState('Motivasi & Pengembangan Diri');
   const [customAngle, setCustomAngle] = useState('');
   const [previewVideo, setPreviewVideo] = useState<ProducedVideoRecord | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -122,31 +76,79 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
         started?: boolean;
         createdCount?: number;
         scheduleDate?: string;
+        recovery?: {
+          scannedFiles: number;
+          recoveredVideos: string[];
+          skippedDuplicates: string[];
+        };
+        result?: {
+          updated: boolean;
+          aiQcStatus: string;
+          notes: string;
+        };
+        cleanup?: {
+          cleanedCount: number;
+          freedBytes: number;
+          skipped: Array<{ videoId: string; reason: string }>;
+          errors: Array<{ videoId: string; error: string }>;
+          archivedCount: number;
+        };
       };
       if (!res.ok) {
         setActionMessage({
           type: 'error',
-          text: json.error || json.reason || `Request failed (${res.status}).`,
+          text: json.error || json.reason || `Permintaan gagal (${res.status}).`,
         });
       } else if (url.includes('/schedule/ensure')) {
         setActionMessage({
           type: 'info',
           text:
             json.createdCount && json.createdCount > 0
-              ? `Scheduled ${json.createdCount} new topics for ${json.scheduleDate} (Asia/Jakarta).`
-              : `Daily schedule for ${json.scheduleDate} (Asia/Jakarta) is already active.`,
+              ? `Menjadwalkan ${json.createdCount} topik baru untuk ${json.scheduleDate} (WIB).`
+              : `Jadwal harian untuk ${json.scheduleDate} (WIB) sudah aktif.`,
+        });
+      } else if (url.includes('/recover')) {
+        const recCount = json.recovery?.recoveredVideos.length ?? 0;
+        const scanned = json.recovery?.scannedFiles ?? 0;
+        setActionMessage({
+          type: 'info',
+          text:
+            recCount > 0
+              ? `Berhasil memulihkan ${recCount} video MP4 terverifikasi dari penyimpanan (${scanned} file dipindai).`
+              : `Pemindaian penyimpanan selesai (${scanned} file MP4 dipindai; tidak ada video baru yang belum terdaftar).`,
+        });
+      } else if (url.includes('/ai-qc')) {
+        setActionMessage({
+          type: json.result?.aiQcStatus === 'rejected' ? 'error' : 'info',
+          text:
+            json.result?.aiQcStatus === 'passed'
+              ? 'Kontrol Kualitas (Eko) terverifikasi dan lulus.'
+              : json.result?.aiQcStatus === 'rejected'
+                ? `Kontrol Kualitas (Eko) menolak video: ${json.result.notes}`
+                : 'Verifikasi Kontrol Kualitas lanjutan masih tertunda; pemeriksaan FFprobe lokal tetap valid.',
+        });
+      } else if (url.includes('/cleanup-storage')) {
+        const count = json.cleanup?.cleanedCount ?? 0;
+        const freedMb = ((json.cleanup?.freedBytes ?? 0) / (1024 * 1024)).toFixed(2);
+        const skippedCount = json.cleanup?.skipped.length ?? 0;
+        setActionMessage({
+          type: 'info',
+          text:
+            count > 0
+              ? `Berhasil membersihkan ${count} file MP4 yang sudah terunggah ke TikTok (Hemat: ${freedMb} MB). Thumbnail & arsip tersimpan.`
+              : `Tidak ada file MP4 yang memenuhi syarat pembersihan saat ini (${skippedCount} dilewati demi keamanan).`,
         });
       } else if (url.includes('/run-next') || url.includes('/retry') || url.includes('/rerender')) {
         setActionMessage({
           type: 'info',
-          text: 'Production job started on backend. Watch 3D Office avatars & queue stages update live.',
+          text: 'Tugas produksi dimulai di backend. Pantau avatar karyawan 3D & antrean secara langsung.',
         });
       }
       await onRefresh();
     } catch {
       setActionMessage({
         type: 'error',
-        text: 'Network error communicating with Yendra AI Content Studio backend.',
+        text: 'Gangguan jaringan saat menghubungi backend Studio Konten Yendra.',
       });
     } finally {
       setBusyAction(null);
@@ -157,7 +159,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
     e.preventDefault();
     const catalogTopic =
       selectedCatalogSlug !== 'custom'
-        ? ENGINEERING_TOPIC_CATALOG.find((t) => t.slug === selectedCatalogSlug)
+        ? MOTIVATION_TOPIC_CATALOG.find((t) => t.slug === selectedCatalogSlug)
         : undefined;
 
     const payload = catalogTopic
@@ -174,7 +176,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
         };
 
     if (!payload.topicTitle) {
-      setActionMessage({ type: 'error', text: 'Enter an engineering topic title first.' });
+      setActionMessage({ type: 'error', text: 'Masukkan judul topik motivasi terlebih dahulu.' });
       return;
     }
 
@@ -184,11 +186,41 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
     setShowAddForm(false);
   };
 
+  const handleConnectTikTok = async (scopeMode: 'full' | 'draft' = 'full') => {
+    setBusyAction('tiktok-connect');
+    setActionMessage(null);
+    await startTikTokOAuthPopup({
+      scopeMode,
+      onSuccess: async (username) => {
+        setActionMessage({
+          type: 'info',
+          text: username
+            ? `Akun TikTok @${username} berhasil terhubung.`
+            : 'Akun TikTok berhasil terhubung.',
+        });
+        setBusyAction(null);
+        await onRefresh();
+      },
+      onError: (msg) => {
+        setActionMessage({ type: 'error', text: msg });
+        setBusyAction(null);
+      },
+    });
+    setBusyAction((prev) => (prev === 'tiktok-connect' ? null : prev));
+  };
+
+  const handleTikTokSettingsChange = async (patch: {
+    autoUploadEnabled?: boolean;
+    defaultMode?: TikTokPublishMode;
+    defaultPrivacy?: TikTokPrivacyLevel;
+  }) => {
+    await postStudioAction('/api/tiktok/settings', 'POST', patch, 'tiktok-settings');
+  };
+
   const serviceStatus = dashboard?.serviceStatus;
   const metrics = dashboard?.metrics;
-  const jobs: ProductionJobRecord[] = dashboard?.jobs ?? [];
   const videos: ProducedVideoRecord[] = dashboard?.videos ?? [];
-  const logs = dashboard?.logs ?? [];
+  const tiktok = dashboard?.tiktok;
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 lg:p-6">
@@ -198,15 +230,15 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-2xl font-bold text-slate-50">
-                AI CONTENT STUDIO
+                STUDIO KONTEN
               </h1>
               <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono-num text-xs text-slate-300">
-                Asia/Jakarta · {serviceStatus?.jakartaDate ?? '—'} ·{' '}
+                WIB · {serviceStatus?.jakartaDate ?? '—'} ·{' '}
                 {serviceStatus?.jakartaClock ?? '—'}
               </span>
             </div>
             <p className="mt-1 text-sm text-slate-400">
-              Automated Indonesian short-form (9:16 · 1080×1920 · 30–60s) mechanical &amp; technology education studio targeting 3 verified MP4 videos per day.
+              Studio produksi video motivasi vertikal berbahasa Indonesia (9:16 · 1080×1920 · 30–60d) dengan target 3 video MP4 terverifikasi per hari.
             </p>
           </div>
 
@@ -216,7 +248,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
               onClick={onJumpToOffice}
               className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
             >
-              Watch Crew in 3D Office
+              Lihat Tim di Kantor 3D
             </button>
             <button
               type="button"
@@ -232,7 +264,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
             >
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Sync Daily Schedule (3)</span>
+              <span>Sinkronkan Jadwal Harian (3)</span>
             </button>
             <button
               type="button"
@@ -240,7 +272,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
             >
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Add Topic</span>
+              <span>Tambah Topik</span>
             </button>
             <button
               type="button"
@@ -251,7 +283,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{dashboard?.runningJobId ? 'Pipeline Running...' : 'Run Next Queued Job'}</span>
+              <span>{dashboard?.runningJobId ? 'Produksi Berjalan...' : 'Jalankan Tugas Berikutnya'}</span>
             </button>
           </div>
         </div>
@@ -259,7 +291,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
         {/* Service & API Readiness Banner */}
         {serviceStatus && (
           <section
-            aria-label="Service Configuration Status"
+            aria-label="Status Konfigurasi Layanan"
             className={`rounded-xl border p-4 ${
               serviceStatus.missingConfigs.length > 0
                 ? 'border-amber-700/60 bg-amber-950/30'
@@ -282,8 +314,8 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                 <div>
                   <h2 className="font-display text-sm font-semibold text-slate-100">
                     {serviceStatus.missingConfigs.length > 0
-                      ? 'Configuration Required for Live AI Video Production'
-                      : 'All AI Production & MP4 Rendering Services Ready'}
+                      ? 'Konfigurasi Diperlukan untuk Produksi Video Langsung'
+                      : 'Seluruh Layanan Produksi & Render MP4 Siap'}
                   </h2>
                   {serviceStatus.missingConfigs.length > 0 ? (
                     <ul className="mt-1 space-y-1 text-xs text-amber-200/90">
@@ -296,7 +328,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                     </ul>
                   ) : (
                     <p className="mt-0.5 text-xs text-emerald-200/90">
-                      Gemini ({serviceStatus.geminiModel}), Indonesian TTS ({serviceStatus.ttsModel}), Visual Renderer ({serviceStatus.externalImageProvider}), FFmpeg 1080×1920 H.264/AAC, and SQLite storage are operational.
+                      AI Naskah Motivasi ({serviceStatus.geminiModel}), Suara Bahasa Indonesia ({serviceStatus.ttsModel}), Renderer Visual ({serviceStatus.externalImageProvider}), FFmpeg 1080×1920 H.264/AAC, dan penyimpanan SQLite aktif.
                     </p>
                   )}
                 </div>
@@ -305,13 +337,13 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
               <div className="flex flex-wrap items-center gap-3">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-300 sm:flex sm:items-center sm:gap-4">
                   <span>
-                    Gemini API:{' '}
+                    Kunci Studio:{' '}
                     <strong
                       className={
                         serviceStatus.geminiConfigured ? 'text-emerald-400' : 'text-amber-400'
                       }
                     >
-                      {serviceStatus.geminiConfigured ? 'Configured' : 'Missing Key'}
+                      {serviceStatus.geminiConfigured ? 'Siap' : 'Belum Diatur'}
                     </strong>
                   </span>
                   <span>
@@ -321,15 +353,15 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                         serviceStatus.ffmpegAvailable ? 'text-emerald-400' : 'text-rose-400'
                       }
                     >
-                      {serviceStatus.ffmpegAvailable ? 'Ready' : 'Unavailable'}
+                      {serviceStatus.ffmpegAvailable ? 'Siap' : 'Tidak Tersedia'}
                     </strong>
                   </span>
                   <span>
-                    Diagrams:{' '}
+                    Visual:{' '}
                     <strong className="text-slate-100">
                       {serviceStatus.externalImageProvider === 'openai'
                         ? 'OpenAI DALL-E 3'
-                        : 'Gemini SVG + Resvg PNG'}
+                        : 'SVG Motivasi + Resvg PNG'}
                     </strong>
                   </span>
                 </div>
@@ -348,9 +380,178 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                     }
                     className="h-3.5 w-3.5 accent-blue-500"
                   />
-                  <span>Auto-Run Queue</span>
+                  <span>Jalankan Antrean Otomatis</span>
                 </label>
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* TikTok Auto-Publish Panel */}
+        {tiktok && (
+          <section
+            aria-label="Publikasi Otomatis TikTok"
+            className="rounded-xl border border-slate-800 bg-slate-900 p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-display text-sm font-semibold text-slate-100">
+                    Publikasi Otomatis TikTok (Riko)
+                  </h2>
+                  <span
+                    className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${
+                      tiktok.connected
+                        ? 'border-emerald-700/60 bg-emerald-950/60 text-emerald-300'
+                        : tiktok.configured
+                          ? 'border-blue-700/60 bg-blue-950/60 text-blue-300'
+                          : 'border-amber-700/60 bg-amber-950/60 text-amber-300'
+                    }`}
+                  >
+                    {tiktok.connected
+                      ? `Terhubung: ${tiktok.username ? `@${tiktok.username}` : tiktok.displayName || tiktok.openId}`
+                      : tiktok.configured
+                        ? 'Siap Dihubungkan'
+                        : 'Kunci Developer Belum Diatur'}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {tiktok.connected
+                    ? 'Video motivasi yang lulus QC Eko dapat dikirim otomatis maupun manual oleh Riko ke Draft Inbox atau Direct Post akun TikTok Anda.'
+                    : !tiktok.configured
+                      ? `Atur ${tiktok.missingKeys.join(' dan ')} di Settings > Secrets serta daftarkan Redirect URI di TikTok for Developers agar koneksi akun aktif.`
+                      : 'Hubungkan akun TikTok Anda melalui login resmi TikTok OAuth 2.0 untuk mengaktifkan auto-upload video motivasi.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {tiktok.connected ? (
+                  <>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={tiktok.autoUploadEnabled}
+                        disabled={busyAction !== null}
+                        onChange={(e) =>
+                          void handleTikTokSettingsChange({
+                            autoUploadEnabled: e.target.checked,
+                          })
+                        }
+                        className="h-3.5 w-3.5 accent-emerald-500"
+                      />
+                      <span>Auto-Upload Setelah QC</span>
+                    </label>
+                    <select
+                      aria-label="Mode upload TikTok"
+                      value={tiktok.defaultMode}
+                      disabled={busyAction !== null}
+                      onChange={(e) =>
+                        void handleTikTokSettingsChange({
+                          defaultMode: e.target.value as TikTokPublishMode,
+                        })
+                      }
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                    >
+                      <option value="draft">Kirim ke Draft (Inbox TikTok)</option>
+                      <option value="direct">Post Langsung (Direct Post)</option>
+                    </select>
+                    {tiktok.defaultMode === 'direct' && (
+                      <select
+                        aria-label="Privasi post TikTok"
+                        value={tiktok.defaultPrivacy}
+                        disabled={busyAction !== null}
+                        onChange={(e) =>
+                          void handleTikTokSettingsChange({
+                            defaultPrivacy: e.target.value as TikTokPrivacyLevel,
+                          })
+                        }
+                        className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                      >
+                        <option value="SELF_ONLY">Hanya Saya (Sandbox/Privat)</option>
+                        <option value="PUBLIC_TO_EVERYONE">Publik (Semua Orang)</option>
+                        <option value="MUTUAL_FOLLOW_FRIENDS">Teman Saling Ikuti</option>
+                        <option value="FOLLOWER_OF_CREATOR">Pengikut Saja</option>
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() =>
+                        void postStudioAction(
+                          '/api/tiktok/cleanup-storage',
+                          'POST',
+                          undefined,
+                          'tiktok-cleanup',
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Bersihkan Storage</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() =>
+                        void postStudioAction(
+                          '/api/tiktok/disconnect',
+                          'POST',
+                          undefined,
+                          'tiktok-disconnect',
+                        )
+                      }
+                      className="rounded-lg border border-rose-800/60 bg-rose-950/40 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-900/50 disabled:opacity-50"
+                    >
+                      Putuskan Akun
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() =>
+                        void postStudioAction(
+                          '/api/tiktok/cleanup-storage',
+                          'POST',
+                          undefined,
+                          'tiktok-cleanup',
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Bersihkan Storage</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() => void handleConnectTikTok('full')}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3.5 py-2 text-xs font-semibold text-slate-950 hover:bg-white disabled:opacity-50"
+                    >
+                      <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Hubungkan Akun TikTok</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-[11px] text-slate-400">
+              <span>
+                <span className="font-semibold text-slate-300">Jadwal Auto-Upload WIB:</span>{' '}
+                <code className="font-mono-num text-emerald-300">
+                  {(tiktok.scheduledHoursWib ?? ['09:00', '12:00', '18:00']).join(' · ')} WIB
+                </code>
+                {' · '}
+                <span>Arsip terbersihkan: {tiktok.archivedCount ?? 0} video</span>
+              </span>
+              {!tiktok.connected && (
+                <span>
+                  <span className="font-semibold text-slate-300">Redirect URI:</span>{' '}
+                  <code className="font-mono-num text-blue-300">{tiktok.callbackUrls.dev}</code>
+                </span>
+              )}
             </div>
           </section>
         )}
@@ -376,13 +577,13 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="font-display text-sm font-semibold text-slate-100">
-                Schedule Engineering Video Topic (Preventing Same-Day Duplicates)
+                Jadwalkan Topik Video Motivasi (Mencegah Duplikat Hari yang Sama)
               </h2>
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
                 className="text-slate-400 hover:text-slate-200"
-                aria-label="Close topic form"
+                aria-label="Tutup form topik"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -390,7 +591,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
                 <label htmlFor="studio-catalog-select" className="block text-xs text-slate-300">
-                  Engineering Niche Preset or Custom
+                  Preset Topik Motivasi atau Kustom
                 </label>
                 <select
                   id="studio-catalog-select"
@@ -398,8 +599,8 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                   onChange={(e) => setSelectedCatalogSlug(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
                 >
-                  <option value="custom">Custom Mechanical / Technology Topic...</option>
-                  {ENGINEERING_TOPIC_CATALOG.map((t) => (
+                  <option value="custom">Topik Motivasi Kustom...</option>
+                  {MOTIVATION_TOPIC_CATALOG.map((t) => (
                     <option key={t.slug} value={t.slug}>
                       [{t.category}] {t.title}
                     </option>
@@ -411,7 +612,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                 <>
                   <div>
                     <label htmlFor="studio-custom-cat" className="block text-xs text-slate-300">
-                      Engineering Category
+                      Kategori Motivasi
                     </label>
                     <input
                       id="studio-custom-cat"
@@ -419,12 +620,12 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                       value={customCategory}
                       onChange={(e) => setCustomCategory(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                      placeholder="e.g., Car Engines & Mechanical Systems"
+                      placeholder="Contoh: Disiplin, Ketangguhan, & Mindset"
                     />
                   </div>
                   <div>
                     <label htmlFor="studio-custom-title" className="block text-xs text-slate-300">
-                      Topic Title (Indonesian / Technical)
+                      Judul Topik Motivasi (Bahasa Indonesia)
                     </label>
                     <input
                       id="studio-custom-title"
@@ -432,12 +633,12 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                       value={customTitle}
                       onChange={(e) => setCustomTitle(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                      placeholder="e.g., Cara Kerja Turbocharger Pada Mesin Diesel"
+                      placeholder="Contoh: Kekuatan Langkah Kecil Saat Hampir Menyerah"
                     />
                   </div>
                   <div>
                     <label htmlFor="studio-custom-angle" className="block text-xs text-slate-300">
-                      Technical Explanation Angle
+                      Pesan Utama &amp; Sudut Pandang Motivasi
                     </label>
                     <input
                       id="studio-custom-angle"
@@ -445,7 +646,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                       value={customAngle}
                       onChange={(e) => setCustomAngle(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                      placeholder="Turbin gas buang, kompresor udara, intercooler..."
+                      placeholder="Mengapa konsistensi 1% setiap hari mengalahkan semangat sesaat..."
                     />
                   </div>
                 </>
@@ -457,207 +658,69 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                 onClick={() => setShowAddForm(false)}
                 className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
               >
-                Cancel
+                Batal
               </button>
               <button
                 type="submit"
                 disabled={busyAction !== null}
                 className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
               >
-                Enqueue Topic
+                Masukkan ke Antrean
               </button>
             </div>
           </form>
         )}
 
         {/* 6 Production KPI Cards */}
-        <section aria-label="Daily Content Studio Metrics" className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <section aria-label="Metrik Harian Studio Konten" className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-            <div className="text-xs text-slate-400">Daily Target</div>
+            <div className="text-xs text-slate-400">Target Harian</div>
             <div className="font-mono-num mt-1 text-2xl font-bold text-slate-50">
               {metrics?.dailyTarget ?? 3}
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">Videos / day (WIB)</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">Video / hari (WIB)</div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-            <div className="text-xs text-slate-400">Completed Today</div>
+            <div className="text-xs text-slate-400">Selesai Hari Ini</div>
             <div className="font-mono-num mt-1 text-2xl font-bold text-emerald-400">
               {metrics?.completedToday ?? 0}
               <span className="text-sm font-normal text-slate-500"> / {metrics?.dailyTarget ?? 3}</span>
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">Verified MP4s today</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">MP4 terverifikasi hari ini</div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-            <div className="text-xs text-slate-400">Currently Editing</div>
+            <div className="text-xs text-slate-400">Sedang Dikerjakan</div>
             <div className="font-mono-num mt-1 text-2xl font-bold text-blue-400">
               {metrics?.currentlyEditing ?? 0}
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">Active stage 1–4 jobs</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">Tahap aktif 1–4</div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-            <div className="text-xs text-slate-400">Waiting for Review</div>
+            <div className="text-xs text-slate-400">Menunggu Tinjauan</div>
             <div className="font-mono-num mt-1 text-2xl font-bold text-amber-400">
               {metrics?.waitingReview ?? 0}
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">In AI Quality Control</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">Pemeriksaan Eko (QC)</div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-            <div className="text-xs text-slate-400">Failed Tasks</div>
+            <div className="text-xs text-slate-400">Tugas Gagal</div>
             <div className="font-mono-num mt-1 text-2xl font-bold text-rose-400">
               {metrics?.failedTasks ?? 0}
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">Retryable errors</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">Dapat diulang</div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
-            <div className="text-xs text-slate-400">Total Produced</div>
+            <div className="text-xs text-slate-400">Total Diproduksi</div>
             <div className="font-mono-num mt-1 text-2xl font-bold text-slate-50">
               {metrics?.totalProduced ?? 0}
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">Lifetime verified MP4s</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">Total MP4 terverifikasi</div>
           </div>
-        </section>
-
-        {/* Daily Production Queue & 5-Employee Workflow */}
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-            <div>
-              <h2 className="font-display text-base font-semibold text-slate-100">
-                Daily Production Schedule &amp; Task Queue
-              </h2>
-              <p className="text-xs text-slate-400">
-                Real 5-employee pipeline: AI Researcher → AI Scriptwriter → AI Visual Designer → AI Video Editor → AI Quality Control.
-              </p>
-            </div>
-            <span className="font-mono-num text-xs text-slate-400">
-              {loading ? 'Refreshing...' : `${jobs.length} total job(s)`}
-            </span>
-          </div>
-
-          {jobs.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">
-              No scheduled jobs yet. Click &ldquo;Sync Daily Schedule (3)&rdquo; to generate today&apos;s Asia/Jakarta engineering queue.
-            </p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {jobs.map((job) => (
-                <article
-                  key={job.id}
-                  className="rounded-lg border border-slate-800 bg-slate-950 p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono-num text-xs text-slate-500">
-                          {job.scheduleDate}
-                        </span>
-                        <span className="text-xs text-slate-500">·</span>
-                        <span className="text-xs font-medium text-blue-300">
-                          {job.category}
-                        </span>
-                        <span
-                          className={`rounded border px-2 py-0.5 text-[11px] font-medium ${statusBadgeStyle(
-                            job.status,
-                          )}`}
-                        >
-                          {formatStatusLabel(job.status)}
-                        </span>
-                      </div>
-                      <h3 className="mt-1 font-display text-sm font-semibold text-slate-100">
-                        {job.topicTitle}
-                      </h3>
-                      <p className="mt-0.5 text-xs text-slate-400">{job.angle}</p>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-2">
-                      {(job.status === 'queued' || job.status === 'failed') && (
-                        <button
-                          type="button"
-                          disabled={busyAction !== null || Boolean(dashboard?.runningJobId)}
-                          onClick={() =>
-                            void postStudioAction(
-                              `/api/studio/jobs/${job.id}/retry`,
-                              'POST',
-                              undefined,
-                              `retry-${job.id}`,
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
-                        >
-                          {job.status === 'failed' ? (
-                            <>
-                              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                              <span>Retry</span>
-                            </>
-                          ) : (
-                            <>
-                              <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                              <span>Run Job</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Discrete Real Stage Progress Steps (Never Fake Percentage Bars) */}
-                  <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
-                    {STAGE_META.map((stage) => {
-                      const isDone =
-                        job.status === 'completed' || job.currentStageIndex > stage.index;
-                      const isCurrent =
-                        job.status !== 'completed' &&
-                        job.status !== 'failed' &&
-                        job.currentStageIndex === stage.index;
-                      const isFailedHere =
-                        job.status === 'failed' && job.currentStageIndex === stage.index;
-
-                      let cellStyle = 'border-slate-800 bg-slate-900 text-slate-500';
-                      if (isDone) {
-                        cellStyle = 'border-emerald-800/70 bg-emerald-950/40 text-emerald-300';
-                      } else if (isCurrent) {
-                        cellStyle = 'border-blue-600/80 bg-blue-950/60 text-blue-200';
-                      } else if (isFailedHere) {
-                        cellStyle = 'border-rose-700/80 bg-rose-950/60 text-rose-300';
-                      }
-
-                      return (
-                        <div
-                          key={stage.index}
-                          className={`rounded border px-2 py-1 text-[11px] ${cellStyle}`}
-                        >
-                          <div className="font-mono-num font-semibold">
-                            {stage.index}. {stage.label}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {job.errorMessage && (
-                    <div className="mt-2.5 rounded-md border border-rose-800/70 bg-rose-950/50 px-3 py-2 text-xs text-rose-200">
-                      <strong>Error:</strong> {job.errorMessage}
-                    </div>
-                  )}
-
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono-num text-[11px] text-slate-500">
-                    <span>Attempts: {job.attempts}</span>
-                    {job.startedAt && (
-                      <span>Started: {new Date(job.startedAt).toLocaleTimeString()}</span>
-                    )}
-                    {job.completedAt && (
-                      <span>Completed: {new Date(job.completedAt).toLocaleTimeString()}</span>
-                    )}
-                    {job.videoId && <span>Video ID: {job.videoId}</span>}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
         </section>
 
         {/* Video Library */}
@@ -665,25 +728,38 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div>
               <h2 className="font-display text-base font-semibold text-slate-100">
-                Video Library (Verified 1080×1920 MP4 Outputs)
+                Pustaka Video (Output MP4 1080×1920 Terverifikasi)
               </h2>
               <p className="text-xs text-slate-400">
-                Only videos that passed Indonesian narration, 1080×1920 vertical FFprobe verification, and AI Quality Control appear here.
+                Video terverifikasi FFprobe (1080×1920 H.264/AAC, 30–60d) tersedia di sini lengkap dengan unduhan MP4, naskah, SRT, dan status kontrol kualitas Eko.
               </p>
             </div>
-            <span className="font-mono-num text-xs text-slate-400">
-              {videos.length} stored video(s)
-            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={busyAction !== null}
+                onClick={() =>
+                  void postStudioAction('/api/studio/recover', 'POST', undefined, 'recover')
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+              >
+                <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                <span>Pindai &amp; Pulihkan MP4</span>
+              </button>
+              <span className="font-mono-num text-xs text-slate-400">
+                {videos.length} video tersimpan
+              </span>
+            </div>
           </div>
 
           {videos.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <Film className="h-9 w-9 text-slate-600" aria-hidden="true" />
               <p className="mt-2 text-sm font-medium text-slate-300">
-                No completed MP4 videos in persistent storage yet
+                Belum ada video MP4 selesai di penyimpanan permanen
               </p>
               <p className="mt-1 max-w-lg text-xs text-slate-500">
-                When a queued engineering topic completes all 5 stages and passes Quality Control, its real 1080×1920 MP4 preview, Indonesian script, subtitles, and prominent Download button will appear here.
+                Setelah topik motivasi menyelesaikan seluruh 5 tahap dan lolos kontrol kualitas Eko, pratinjau MP4 1080×1920, naskah Indonesia, subtitle, dan tombol unduh akan muncul di sini.
               </p>
             </div>
           ) : (
@@ -710,31 +786,129 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                     </p>
 
                     <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2.5 text-xs text-slate-300">
-                      <div className="text-[11px] font-semibold text-blue-300">
-                        Social Caption
-                      </div>
-                      <p className="mt-0.5 line-clamp-2">{video.caption}</p>
-                      <p className="mt-1 font-mono-num text-[11px] text-slate-400">
+                      <p className="line-clamp-2">{video.caption}</p>
+                      <p className="mt-1 font-mono-num text-[11px] text-blue-300">
                         {video.hashtags.join(' ')}
                       </p>
                     </div>
 
-                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-300">
+                    <div
+                      className={`mt-2 flex items-center gap-1.5 text-[11px] ${
+                        video.aiQcStatus === 'pending'
+                          ? 'text-amber-300'
+                          : video.aiQcStatus === 'rejected'
+                            ? 'text-rose-300'
+                            : 'text-emerald-300'
+                      }`}
+                    >
                       <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="shrink-0 font-semibold">
+                        {video.aiQcStatus === 'pending'
+                          ? 'QC Pending ·'
+                          : video.aiQcStatus === 'rejected'
+                            ? 'QC Ditolak ·'
+                            : 'QC Lulus ·'}
+                      </span>
                       <span className="truncate">{video.qcNotes}</span>
                     </div>
+
+                    {video.tiktokStatus && video.tiktokStatus !== 'none' && (
+                      <div
+                        className={`mt-1.5 rounded border px-2 py-1 text-[11px] ${
+                          video.tiktokStatus === 'draft_sent' ||
+                          video.tiktokStatus === 'published'
+                            ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-300'
+                            : video.tiktokStatus === 'uploading'
+                              ? 'border-blue-800/60 bg-blue-950/40 text-blue-300'
+                              : 'border-rose-800/60 bg-rose-950/40 text-rose-300'
+                        }`}
+                      >
+                        <div className="font-semibold">
+                          {video.tiktokStatus === 'draft_sent'
+                            ? 'TikTok: Masuk Draft (Inbox)'
+                            : video.tiktokStatus === 'published'
+                              ? 'TikTok: Terposting Langsung'
+                              : video.tiktokStatus === 'uploading'
+                                ? 'TikTok: Sedang Mengunggah...'
+                                : 'TikTok: Gagal Upload'}
+                        </div>
+                        {video.tiktokError && (
+                          <p className="mt-0.5 line-clamp-2 text-[10px] text-rose-200">
+                            {video.tiktokError}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {video.fileCleanedUp && video.thumbnailFileName && (
+                      <div className="mt-2 overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
+                        <img
+                          src={`/api/studio/videos/${video.id}/thumbnail`}
+                          alt={`Thumbnail arsip ${video.title}`}
+                          className="h-28 w-full object-cover"
+                        />
+                        <div className="px-2 py-1 text-[10px] font-medium text-slate-300">
+                          MP4 Diarsipkan (Storage Dibersihkan)
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 space-y-2 border-t border-slate-800 pt-3">
-                    {/* Prominent DOWNLOAD MP4 button */}
-                    <a
-                      href={`/api/studio/videos/${video.id}/download`}
-                      download
-                      className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold tracking-wide text-white hover:bg-emerald-500"
-                    >
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      <span>DOWNLOAD MP4</span>
-                    </a>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {video.fileCleanedUp ? (
+                        <span className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-[11px] font-semibold text-slate-400">
+                          <span>MP4 Diarsipkan</span>
+                        </span>
+                      ) : (
+                        <a
+                          href={`/api/studio/videos/${video.id}/download`}
+                          download
+                          className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-2 text-xs font-bold tracking-wide text-white hover:bg-emerald-500"
+                        >
+                          <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>DOWNLOAD MP4</span>
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          busyAction !== null ||
+                          video.tiktokStatus === 'uploading' ||
+                          Boolean(video.fileCleanedUp) ||
+                          !tiktok?.connected
+                        }
+                        title={
+                          video.fileCleanedUp
+                            ? 'MP4 sudah dibersihkan setelah berhasil diunggah'
+                            : tiktok?.connected
+                              ? 'Unggah MP4 ini ke akun TikTok terhubung'
+                              : 'Hubungkan akun TikTok terlebih dahulu'
+                        }
+                        onClick={() =>
+                          void postStudioAction(
+                            `/api/studio/videos/${video.id}/tiktok-upload`,
+                            'POST',
+                            {
+                              mode: tiktok?.defaultMode ?? 'draft',
+                              privacyLevel: tiktok?.defaultPrivacy ?? 'SELF_ONLY',
+                            },
+                            `tiktok-upload-${video.id}`,
+                          )
+                        }
+                        className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>
+                          {video.tiktokStatus === 'uploading'
+                            ? 'Mengunggah...'
+                            : video.fileCleanedUp
+                              ? 'Terarsip'
+                              : (tiktok?.defaultMode ?? 'draft') === 'direct'
+                                ? 'Post Langsung'
+                                : 'Kirim Draft'}
+                        </span>
+                      </button>
+                    </div>
 
                     <div className="grid grid-cols-3 gap-1.5">
                       <button
@@ -743,7 +917,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                         className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800"
                       >
                         <Play className="h-3 w-3" aria-hidden="true" />
-                        <span>Preview</span>
+                        <span>Pratinjau</span>
                       </button>
                       <a
                         href={`/api/studio/videos/${video.id}/text/script`}
@@ -751,7 +925,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                         className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800"
                       >
                         <FileText className="h-3 w-3" aria-hidden="true" />
-                        <span>Script</span>
+                        <span>Naskah</span>
                       </a>
                       <a
                         href={`/api/studio/videos/${video.id}/text/subtitles`}
@@ -763,23 +937,43 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                       </a>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <button
-                        type="button"
-                        disabled={busyAction !== null || Boolean(dashboard?.runningJobId)}
-                        onClick={() =>
-                          void postStudioAction(
-                            `/api/studio/videos/${video.id}/rerender`,
-                            'POST',
-                            undefined,
-                            `rerender-${video.id}`,
-                          )
-                        }
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 disabled:opacity-50"
-                      >
-                        <RotateCcw className="h-3 w-3" aria-hidden="true" />
-                        <span>Re-render</span>
-                      </button>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={busyAction !== null || Boolean(dashboard?.runningJobId)}
+                          onClick={() =>
+                            void postStudioAction(
+                              `/api/studio/videos/${video.id}/rerender`,
+                              'POST',
+                              undefined,
+                              `rerender-${video.id}`,
+                            )
+                          }
+                          className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 disabled:opacity-50"
+                        >
+                          <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                          <span>Render Ulang</span>
+                        </button>
+                        {video.aiQcStatus === 'pending' && (
+                          <button
+                            type="button"
+                            disabled={busyAction !== null}
+                            onClick={() =>
+                              void postStudioAction(
+                                `/api/studio/videos/${video.id}/ai-qc`,
+                                'POST',
+                                undefined,
+                                `ai-qc-${video.id}`,
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-300 hover:text-amber-200 disabled:opacity-50"
+                          >
+                            <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                            <span>Verifikasi QC</span>
+                          </button>
+                        )}
+                      </div>
 
                       {confirmDeleteId === video.id ? (
                         <div className="flex items-center gap-1.5">
@@ -796,14 +990,14 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                             }}
                             className="rounded bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-500"
                           >
-                            Confirm Delete
+                            Konfirmasi Hapus
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(null)}
                             className="text-[11px] text-slate-400 hover:text-slate-200"
                           >
-                            Cancel
+                            Batal
                           </button>
                         </div>
                       ) : (
@@ -813,7 +1007,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                           className="inline-flex items-center gap-1 text-[11px] text-rose-400 hover:text-rose-300"
                         >
                           <Trash2 className="h-3 w-3" aria-hidden="true" />
-                          <span>Delete</span>
+                          <span>Hapus</span>
                         </button>
                       )}
                     </div>
@@ -824,51 +1018,6 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
           )}
         </section>
 
-        {/* Production History Log */}
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h2 className="font-display text-base font-semibold text-slate-100">
-              Production History &amp; Execution Log
-            </h2>
-            <span className="inline-flex items-center gap-1 font-mono-num text-xs text-slate-400">
-              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{logs.length} recent events</span>
-            </span>
-          </div>
-
-          <div className="mt-3 max-h-60 space-y-1.5 overflow-y-auto pr-1">
-            {logs.length === 0 ? (
-              <p className="py-4 text-xs text-slate-500">No production logs recorded yet.</p>
-            ) : (
-              logs.map((log) => (
-                <div
-                  key={log.id}
-                  className="flex items-baseline justify-between gap-3 rounded border border-slate-800/80 bg-slate-950 px-3 py-1.5 text-xs"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="font-mono-num font-semibold text-slate-300">
-                      [{log.agentId}]
-                    </span>{' '}
-                    <span
-                      className={
-                        log.level === 'error'
-                          ? 'text-rose-300'
-                          : log.level === 'success'
-                            ? 'text-emerald-300'
-                            : 'text-slate-300'
-                      }
-                    >
-                      {log.message}
-                    </span>
-                  </div>
-                  <span className="shrink-0 font-mono-num text-[11px] text-slate-500">
-                    {new Date(log.createdAt).toLocaleTimeString()}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
       </div>
 
       {/* In-Dashboard 9:16 Video Preview Dialog */}
@@ -876,7 +1025,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Preview ${previewVideo.title}`}
+          aria-label={`Pratinjau ${previewVideo.title}`}
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4"
         >
           <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900">
@@ -894,7 +1043,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                 type="button"
                 onClick={() => setPreviewVideo(null)}
                 className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
-                aria-label="Close video preview"
+                aria-label="Tutup pratinjau video"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -902,31 +1051,45 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
 
             <div className="grid flex-1 gap-5 overflow-y-auto p-5 md:grid-cols-12">
               <div className="flex flex-col items-center md:col-span-5">
-                <video
-                  controls
-                  playsInline
-                  preload="metadata"
-                  src={`/api/studio/videos/${previewVideo.id}/stream`}
-                  className="aspect-[9/16] max-h-[65vh] w-full max-w-[320px] rounded-xl border border-slate-700 bg-black object-contain"
-                />
-                <a
-                  href={`/api/studio/videos/${previewVideo.id}/download`}
-                  download
-                  className="mt-3 flex w-full max-w-[320px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500"
-                >
-                  <Download className="h-4 w-4" aria-hidden="true" />
-                  <span>DOWNLOAD MP4</span>
-                </a>
+                {previewVideo.fileCleanedUp && previewVideo.thumbnailFileName ? (
+                  <img
+                    src={`/api/studio/videos/${previewVideo.id}/thumbnail`}
+                    alt={`Thumbnail arsip ${previewVideo.title}`}
+                    className="aspect-[9/16] max-h-[65vh] w-full max-w-[320px] rounded-xl border border-slate-700 bg-black object-cover"
+                  />
+                ) : (
+                  <video
+                    controls
+                    playsInline
+                    preload="metadata"
+                    src={`/api/studio/videos/${previewVideo.id}/stream`}
+                    className="aspect-[9/16] max-h-[65vh] w-full max-w-[320px] rounded-xl border border-slate-700 bg-black object-contain"
+                  />
+                )}
+                {previewVideo.fileCleanedUp ? (
+                  <span className="mt-3 flex w-full max-w-[320px] items-center justify-center rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-semibold text-slate-400">
+                    MP4 Diarsipkan (Storage Dibersihkan)
+                  </span>
+                ) : (
+                  <a
+                    href={`/api/studio/videos/${previewVideo.id}/download`}
+                    download
+                    className="mt-3 flex w-full max-w-[320px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    <span>DOWNLOAD MP4</span>
+                  </a>
+                )}
               </div>
 
               <div className="space-y-3 text-xs text-slate-300 md:col-span-7">
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                  <div className="font-semibold text-blue-300">3s Opening Hook</div>
+                  <div className="font-semibold text-blue-300">Hook Pembuka 3 Detik</div>
                   <p className="mt-1">{previewVideo.hookText}</p>
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                   <div className="font-semibold text-slate-200">
-                    Indonesian Narration Script
+                    Naskah Narasi Bahasa Indonesia
                   </div>
                   <pre className="mt-1 whitespace-pre-wrap font-sans leading-relaxed text-slate-300">
                     {previewVideo.scriptText}
@@ -934,7 +1097,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                   <div className="font-semibold text-slate-200">
-                    Social Caption &amp; Hashtags
+                    Takarir Media Sosial &amp; Tagar
                   </div>
                   <p className="mt-1">{previewVideo.caption}</p>
                   <p className="mt-1 font-mono-num text-blue-300">
@@ -942,7 +1105,7 @@ export const ContentStudioView: React.FC<ContentStudioViewProps> = ({
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                  <div className="font-semibold text-slate-200">Verified Engineering Notes</div>
+                  <div className="font-semibold text-slate-200">Catatan Riset Teknis Terverifikasi</div>
                   <p className="mt-1 text-slate-400">{previewVideo.researchSummary}</p>
                 </div>
               </div>

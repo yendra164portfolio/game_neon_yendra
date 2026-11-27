@@ -37,9 +37,9 @@ interface VideoPipelineViewProps {
 }
 
 const PRESET_TOPICS = [
-  'Autonomous AI Agents Inside a 3D Virtual Office',
-  'Building Real-Time Production Pipelines with Laravel Reverb',
-  'How AI Editors Assemble Multi-Track Timelines in Seconds',
+  'Disiplin Kecil Setiap Hari Mengalahkan Bakat Besar',
+  'Cara Bangkit Lebih Kuat Setelah Mengalami Kegagalan',
+  'Kekuatan 1% Lebih Baik Setiap Hari Tanpa Menunggu Sempurna',
 ];
 
 export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
@@ -146,10 +146,10 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
 
       // Kinetic Subtitle Box at bottom
       const captions = [
-        'Six specialized AI employees coordinate every stage live.',
-        'Research & script beats aligned automatically to B-roll.',
-        'Subtitles & -14 LUFS ambient score mastered for release.',
-        'Ready for final review and multi-channel publishing.',
+        'Enam spesialis bekerja sama langsung di setiap tahap.',
+        'Riset & naskah diselaraskan otomatis ke alur visual.',
+        'Subtitle & audio latar -14 LUFS siap untuk rilis.',
+        'Siap untuk tinjauan akhir dan publikasi multi-kanal.',
       ];
       ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
       ctx.fillRect(24, h - 68, w - 48, 38);
@@ -244,7 +244,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
       if (!res.ok) {
         setGeminiNotice(
           data.error ||
-            'Gemini API key not configured. You can run the full 8-stage workflow in Demo Simulation mode.',
+            'Kunci API belum diatur. Anda dapat menjalankan alur 8 tahap dalam mode Simulasi Demo.',
         );
         return;
       }
@@ -254,9 +254,9 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
         geminiAssisted: true,
         customArtifacts: data.artifacts,
       });
-      setGeminiNotice(`Drafted live production brief via ${data.model}.`);
+      setGeminiNotice(`Ringkasan produksi dibuat melalui ${data.model}.`);
     } catch {
-      setGeminiNotice('Unable to reach /api/gemini/generate-brief.');
+      setGeminiNotice('Tidak dapat menghubungi /api/gemini/generate-brief.');
     } finally {
       setGeminiLoading(false);
     }
@@ -279,10 +279,10 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <h1 className="font-display text-2xl font-bold text-slate-50">
-                Video Production Department
+                Departemen Produksi Video
               </h1>
               <p className="mt-1 text-sm text-slate-400">
-                Automated 8-step video creation pipeline synchronized live with the 3D AI office team.
+                Alur pembuatan video 8 tahap yang tersinkronisasi langsung dengan tim kantor 3D.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -310,14 +310,14 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                 htmlFor="video-topic-input"
                 className="block text-xs font-medium text-slate-300"
               >
-                Video Topic
+                Topik Video
               </label>
               <input
                 id="video-topic-input"
                 type="text"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="Enter a video topic..."
+                placeholder="Masukkan topik video..."
                 className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -327,7 +327,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                 htmlFor="video-format-select"
                 className="block text-xs font-medium text-slate-300"
               >
-                Output Format
+                Format Output
               </label>
               <select
                 id="video-format-select"
@@ -348,7 +348,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-500"
               >
                 <Film className="h-3.5 w-3.5" />
-                <span>Start Video Pipeline</span>
+                <span>Mulai Alur Video</span>
               </button>
               <button
                 type="button"
@@ -357,7 +357,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                 className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
               >
                 <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                <span>{geminiLoading ? 'Drafting...' : 'Gemini Draft'}</span>
+                <span>{geminiLoading ? 'Menyusun...' : 'Draf Cepat'}</span>
               </button>
             </div>
           </div>
@@ -374,21 +374,21 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
           <div className="grid gap-6 lg:grid-cols-12">
             {/* 8-Step Sequence List */}
             <section
-              aria-label="8-Step Video Production Stages"
+              aria-label="8 Tahap Produksi Video"
               className="rounded-xl border border-slate-800 bg-slate-900 p-5 lg:col-span-5"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
                   <h2 className="font-display text-base font-semibold text-slate-100">
-                    8-Stage Production Workflow
+                    Alur Produksi 8 Tahap
                   </h2>
                   <p className="mt-0.5 text-xs text-slate-400">
                     {activeRun.format} · {activeRun.status}
-                    {activeRun.geminiAssisted ? ' · Gemini Assisted' : ' · Demo Simulation'}
+                    {activeRun.geminiAssisted ? ' · Produksi Langsung' : ' · Simulasi Demo'}
                   </p>
                 </div>
                 <span className="font-mono-num text-xs font-semibold text-blue-400">
-                  Step {activeRun.currentStage}/8
+                  Tahap {activeRun.currentStage}/8
                 </span>
               </div>
 
@@ -448,7 +448,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                   <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-3">
                     <div>
                       <span className="text-xs font-medium text-blue-400">
-                        Stage {selectedStage.stageNumber} of 8 ·{' '}
+                        Tahap {selectedStage.stageNumber} dari 8 ·{' '}
                         {stageOwner?.name ?? selectedStage.assigneeId}
                       </span>
                       <h3 className="font-display mt-0.5 text-lg font-bold text-slate-50">
@@ -479,10 +479,10 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h3 className="font-display text-base font-semibold text-slate-100">
-                      Result Review & Approval Studio
+                      Studio Tinjauan &amp; Persetujuan Hasil
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Preview assembled storyboard, kinetic subtitles, and studio audio mix before publishing.
+                      Pratinjau storyboard, subtitle, dan audio latar sebelum dipublikasikan.
                     </p>
                   </div>
                   <span className="font-mono-num text-xs font-semibold text-slate-300">
@@ -507,12 +507,12 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                         {previewPlaying ? (
                           <>
                             <Pause className="h-3.5 w-3.5" />
-                            <span>Pause Preview</span>
+                            <span>Jeda Pratinjau</span>
                           </>
                         ) : (
                           <>
                             <Play className="h-3.5 w-3.5" />
-                            <span>Play Preview</span>
+                            <span>Putar Pratinjau</span>
                           </>
                         )}
                       </button>
@@ -520,7 +520,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setPreviewAudioOn((a) => !a)}
-                        aria-label="Toggle Background Music Preview"
+                        aria-label="Aktifkan/Matikan Pratinjau Musik"
                         className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
                       >
                         {previewAudioOn ? (
@@ -528,7 +528,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                         ) : (
                           <VolumeX className="h-3.5 w-3.5" />
                         )}
-                        <span>Music Mix</span>
+                        <span>Audio Latar</span>
                       </button>
                     </div>
                     <span className="font-mono-num text-xs text-slate-400">
@@ -544,14 +544,14 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                       htmlFor="video-review-notes"
                       className="block text-xs font-medium text-slate-300"
                     >
-                      Reviewer Notes
+                      Catatan Peninjau
                     </label>
                     <input
                       id="video-review-notes"
                       type="text"
                       value={reviewNotes}
                       onChange={(e) => setReviewNotes(e.target.value)}
-                      placeholder="Optional approval sign-off or revision feedback..."
+                      placeholder="Catatan persetujuan atau masukan revisi (opsional)..."
                       className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
                     />
                   </div>
@@ -562,7 +562,7 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                       onClick={() =>
                         onApproveRun(
                           activeRun.id,
-                          reviewNotes.trim() || 'Approved for publishing.',
+                          reviewNotes.trim() || 'Disetujui oleh Yendra Owner untuk publikasi.',
                         )
                       }
                       disabled={activeRun.status === 'Approved'}
@@ -571,8 +571,8 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                       <CheckCircle2 className="h-4 w-4" />
                       <span>
                         {activeRun.status === 'Approved'
-                          ? 'Approved & Queued to Publish'
-                          : 'Approve & Publish'}
+                          ? 'Disetujui & Antre Publikasi'
+                          : 'Setujui & Publikasikan'}
                       </span>
                     </button>
 
@@ -581,13 +581,13 @@ export const VideoPipelineView: React.FC<VideoPipelineViewProps> = ({
                       onClick={() =>
                         onRequestRevision(
                           activeRun.id,
-                          reviewNotes.trim() || 'Adjust clip transitions and subtitle timing.',
+                          reviewNotes.trim() || 'Perbaiki transisi klip dan ketepatan subtitle.',
                         )
                       }
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
-                      <span>Request Revision (Re-cut)</span>
+                      <span>Minta Revisi (Edit Ulang)</span>
                     </button>
                   </div>
                 </div>

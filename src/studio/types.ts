@@ -17,6 +17,8 @@ export type StudioActiveAgent =
   | 'qc'
   | null;
 
+export type AiQcStatus = 'none' | 'pending' | 'passed' | 'rejected';
+
 export interface MissingConfigItem {
   key: string;
   label: string;
@@ -70,12 +72,64 @@ export interface ProductionJobRecord {
   audioPath: string | null;
   subtitlePath: string | null;
   videoId: string | null;
+  pendingVideoFile?: string | null;
+  aiQcStatus?: AiQcStatus;
   errorMessage: string | null;
   attempts: number;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
   completedAt: string | null;
+}
+
+export type TikTokPublishMode = 'draft' | 'direct';
+
+export type TikTokPrivacyLevel =
+  | 'SELF_ONLY'
+  | 'MUTUAL_FOLLOW_FRIENDS'
+  | 'FOLLOWER_OF_CREATOR'
+  | 'PUBLIC_TO_EVERYONE';
+
+export type TikTokUploadStatus =
+  | 'none'
+  | 'uploading'
+  | 'draft_sent'
+  | 'published'
+  | 'failed';
+
+export interface TikTokUploadArchiveRecord {
+  id: number;
+  videoId: string;
+  publishId: string;
+  fileNameOriginal: string;
+  fileSizeBytes: number;
+  uploadedAt: string;
+  mode: TikTokPublishMode;
+  privacyLevel: TikTokPrivacyLevel;
+  thumbnailFileName: string | null;
+  archivedAt: string;
+}
+
+export interface TikTokAccountStatus {
+  configured: boolean;
+  missingKeys: string[];
+  connected: boolean;
+  openId: string | null;
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  scope: string | null;
+  expiresAt: string | null;
+  autoUploadEnabled: boolean;
+  defaultMode: TikTokPublishMode;
+  defaultPrivacy: TikTokPrivacyLevel;
+  scheduledHoursWib: string[];
+  archivedCount: number;
+  activeCallbackUrl: string;
+  callbackUrls: {
+    dev: string;
+    shared: string;
+  };
 }
 
 export interface ProducedVideoRecord {
@@ -99,7 +153,15 @@ export interface ProducedVideoRecord {
   height: number;
   durationSeconds: number;
   qcPassed: boolean;
+  aiQcStatus?: Exclude<AiQcStatus, 'none'>;
   qcNotes: string;
+  tiktokStatus?: TikTokUploadStatus;
+  tiktokPublishId?: string | null;
+  tiktokMode?: TikTokPublishMode | null;
+  tiktokError?: string | null;
+  tiktokUploadedAt?: string | null;
+  thumbnailFileName?: string | null;
+  fileCleanedUp?: boolean;
   createdAt: string;
 }
 
@@ -120,4 +182,5 @@ export interface StudioDashboardPayload {
   videos: ProducedVideoRecord[];
   logs: StudioLogRow[];
   runningJobId: string | null;
+  tiktok: TikTokAccountStatus;
 }

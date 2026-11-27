@@ -119,6 +119,24 @@ export interface VideoProductionRun {
   geminiAssisted: boolean;
 }
 
+export type ManagerPatrolPhase =
+  | 'at_desk'
+  | 'walking_to_colleague'
+  | 'inspecting'
+  | 'returning_to_desk';
+
+export interface ManagerPatrolState {
+  enabled: boolean;
+  phase: ManagerPatrolPhase;
+  targetAgentId: AgentId | null;
+  targetPos: [number, number, number];
+  targetLookAt: [number, number, number];
+  currentPos: [number, number, number];
+  currentYaw: number;
+  dwellSeconds: number;
+  visitedOrder: AgentId[];
+}
+
 export interface OfficeState {
   employees: EmployeeProfile[];
   tasks: OfficeTask[];
@@ -127,8 +145,9 @@ export interface OfficeState {
   activeVideoRunId: string | null;
   simulationRunning: boolean;
   simulationSpeed: 1 | 2 | 4;
-  modeLabel: 'Demo Simulation' | 'Live Event Bus';
+  modeLabel: 'Simulasi Demo' | 'Live Event Bus';
   lastTickAt: number;
+  managerPatrol: ManagerPatrolState;
 }
 
 export interface DashboardMetrics {
